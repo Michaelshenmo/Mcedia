@@ -1,0 +1,249 @@
+import org.gradle.api.GradleException
+import org.gradle.api.file.DuplicatesStrategy
+import org.gradle.api.tasks.Copy
+import org.gradle.api.tasks.Sync
+import org.gradle.api.tasks.bundling.Jar
+
+plugins {
+    id 'maven-publish'
+    id 'net.fabricmc.fabric-loom' version '1.15-SNAPSHOT'
+}
+
+def mcVersion = project.property('minecraft_version').toString()
+def versionSuffix = "-${mcVersion}"
+if (!project.name.endsWith(versionSuffix)) {
+    throw new GradleException('Version project name must end with the Minecraft version')
+}
+def moduleName = project.name.substring(0, project.name.length() - versionSuffix.length())
+def moduleProject = rootProject.findProject(":${moduleName}")
+if (moduleProject == null) {
+    throw new GradleException("Could not find module project :${moduleName}")
+}
+def moduleRoot = moduleProject.projectDir
+def moduleProp = { String key -> moduleProject.property(key).toString() }
+def loaderVersion = project.property('loader_version').toString()
+def fabricApiVersion = project.property('fabric_api_version').toString()
+def targetJavaVersion = Integer.parseInt(project.property('java_version').toString())
+def targetJavaLauncher = javaToolchains.launcherFor {
+    languageVersion = JavaLanguageVersion.of(targetJavaVersion)
+}
+def artifactBaseName = "${moduleProp('archives_base_name')}-mc${mcVersion}"
+def splitClientSources = moduleName in ['mcedia-core', 'mcedia-platforms']
+def licenseFile = rootProject.file('LICENSE')
+
+def generatedMainJavaDir = file("${buildDir}/generated/versionedSrc/${mcVersion}/main/java")
+def generatedMainResourcesDir = file("${buildDir}/generated/versionedSrc/${mcVersion}/main/resources")
+def generatedClientJavaDir = file("${buildDir}/generated/versionedSrc/${mcVersion}/client/java")
+def generatedClientResourcesDir = file("${buildDir}/generated/versionedSrc/${mcVersion}/client/resources")
+
+def syncVersionedMainSources = tasks.register('syncVersionedMainSources', Sync) {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    into(file("${buildDir}/generated/versionedSrc/${mcVersion}/main"))
+    from(new File(project.projectDir, 'src/main/java')) {
+        into('java')
+    }
+    from(new File(project.projectDir, 'src/main/resources')) {
+        into('resources')
+    }
+    from(new File(moduleRoot, 'src/main/java')) {
+        into('java')
+    }
+    from(new File(moduleRoot, 'src/main/resources')) {
+        into('resources')
+    }
+}
+
+def syncVersionedClientSources = tasks.register('syncVersionedClientSources', Sync) {
+    onlyIf { splitClientSources }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    into(file("${buildDir}/generated/versionedSrc/${mcVersion}/client"))
+    from(new File(project.projectDir, 'src/client/java')) {
+        into('java')
+    }
+    from(new File(project.projectDir, 'src/client/resources')) {
+        into('resources')
+    }
+    from(new File(moduleRoot, 'src/client/java')) {
+        into('java')
+    }
+    from(new File(moduleRoot, 'src/client/resources')) {
+        into('resources')
+    }
+}
+
+version = moduleProp('mod_version')
+group = moduleProp('maven_group')
+
+base {
+    archivesName = artifactBaseName
+}
+
+if (moduleName == 'mcedia-core') {
+    configurations {
+        bundledLibs
+    }
+}
+
+loom {
+    if (splitClientSources) {
+        splitEnvironmentSourceSets()
+    }
+
+    runs {
+        named('client') {
+            ideConfigGenerated(true)
+            runDir = "../../../run/${moduleName}/${mcVersion}"
+        }
+    }
+
+    mods {
+        "${moduleProp('archives_base_name')}" {
+            sourceSet sourceSets.main
+            if (splitClientSources) {
+                sourceSet sourceSets.client
+            }
+        }
+    }
+}
+
+sourceSets.main.java.setSrcDirs([generatedMainJavaDir])
+sourceSets.main.resources.setSrcDirs([generatedMainResourcesDir])
+if (splitClientSources) {
+    sourceSets.client.java.setSrcDirs([generatedClientJavaDir])
+    sourceSets.client.resources.setSrcDirs([generatedClientResourcesDir])
+}
+
+tasks.named('compileJava') {
+    dependsOn(syncVersionedMainSources)
+}
+tasks.named('processResources') {
+    dependsOn(syncVersionedMainSources)
+}
+if (splitClientSources) {
+    tasks.named('compileClientJava') {
+        dependsOn(syncVersionedClientSources)
+    }
+    tasks.named('processClientResources') {
+        dependsOn(syncVersionedClientSources)
+    }
+}
+
+tasks.withType(Jar).configureEach {
+    if (name == 'sourcesJar') {
+        dependsOn(syncVersionedMainSources)
+        if (splitClientSources) {
+            dependsOn(syncVersionedClientSources)
+        }
+    }
+}
+
+tasks.withType(JavaExec).configureEach {
+    javaLauncher.set(targetJavaLauncher)
+}
+
+if (splitClientSources) {
+    fabricApi {
+        configureDataGeneration {
+            client = true
+        }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${mcVersion}"
+    implementation "net.fabricmc:fabric-loader:${loaderVersion}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${fabricApiVersion}"
+
+    switch (moduleName) {
+        case 'mcedia-core':
+            implementation project(':mcedia-player')
+            runtimeOnly project(':mcedia-decoder-ffmpeg')
+
+            bundledLibs project(':mcedia-api')
+            bundledLibs project(':mcedia-player')
+            bundledLibs project(':mcedia-decoder-ffmpeg')
+            break
+        case 'mcedia-platforms':
+            implementation project(':mcedia-api')
+            implementation "com.google.code.gson:gson:${rootProject.property('gson_version')}"
+            include "com.google.code.gson:gson:${rootProject.property('gson_version')}"
+            implementation "org.jetbrains:annotations:${rootProject.property('annotations_version')}"
+            implementation "org.slf4j:slf4j-api:${rootProject.property('sl4j_version')}"
+            break
+        default:
+            throw new GradleException("Unsupported Fabric module: ${moduleName}")
+    }
+}
+
+processResources {
+    inputs.property 'version', project.version
+    inputs.property 'minecraft_version', mcVersion
+    inputs.property 'loader_version', loaderVersion
+    filteringCharset 'UTF-8'
+
+    filesMatching('fabric.mod.json') {
+        expand(
+            version: project.version,
+            minecraft_version: mcVersion,
+            loader_version: loaderVersion
+        )
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    if (targetJavaVersion >= 10 || JavaVersion.current().isJava10Compatible()) {
+        options.release.set(targetJavaVersion)
+    }
+}
+
+java {
+    def javaVersion = JavaVersion.toVersion(targetJavaVersion)
+    if (JavaVersion.current() < javaVersion) {
+        toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion)
+    }
+    withSourcesJar()
+}
+
+jar {
+    if (licenseFile.exists()) {
+        from(licenseFile) {
+            rename { "${it}_${artifactBaseName}" }
+        }
+    }
+
+    if (moduleName == 'mcedia-core') {
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+        dependsOn(configurations.bundledLibs)
+        from {
+            configurations.bundledLibs.collect { zipTree(it) }
+        } {
+            exclude 'fabric.mod.json', '*.mixins.json', 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+        }
+    }
+}
+
+tasks.register('buildAndCollect', Copy) {
+    group = 'build'
+    dependsOn('build')
+    from({ tasks.named('jar').get().archiveFile.get().asFile })
+    into(rootProject.layout.buildDirectory.dir("libs/${mcVersion}"))
+}
+
+publishing {
+    publications {
+        def mavenJava = findByName('mavenJava')
+        if (mavenJava == null) {
+            mavenJava = create('mavenJava', MavenPublication)
+            mavenJava.from components.java
+        }
+        mavenJava.artifactId = artifactBaseName
+        mavenJava.version = project.version
+    }
+    repositories {
+        mavenLocal()
+        maven {
+            url = uri("${rootDir}/publish")
+        }
+    }
+}

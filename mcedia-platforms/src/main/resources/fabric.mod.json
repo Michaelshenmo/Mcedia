@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "mcedia_platforms",
+  "version": "${version}",
+  "name": "Mcedia Platforms",
+  "description": "Platform media resolvers and login client for Mcedia",
+  "authors": [],
+  "contact": {},
+  "license": "All-Rights-Reserved",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["top.tobyprime.mcedia_platforms.McediaPlatforms"],
+    "client": ["top.tobyprime.mcedia_platforms.client.McediaPlatformsClient"]
+  },
+  "mixins": [
+    "mcedia_platforms.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "minecraft": "${minecraft_version}"
+  }
+}

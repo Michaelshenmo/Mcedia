@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "mcedia_core",
+  "version": "${version}",
+  "name": "Mcedia Core",
+  "description": "Core client media systems for Mcedia mods",
+  "authors": [],
+  "contact": {},
+  "license": "All-Rights-Reserved",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["top.tobyprime.mcedia_core.client.FabricEntryPointClient"]
+  },
+  "mixins": ["mcedia_core.client.mixins.json"],
+  "depends": {
+    "minecraft": "${minecraft_version}"
+  }
+}

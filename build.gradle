@@ -1,0 +1,61 @@
+plugins {
+    id 'maven-publish'
+    id 'net.fabricmc.fabric-loom' version '1.15-SNAPSHOT' apply false
+    id 'net.fabricmc.fabric-loom-remap' version '1.15-SNAPSHOT' apply false
+}
+
+group = 'top.tobyprime'
+version = findProperty('version') ?: '0.4-SNAPSHOT'
+
+subprojects {
+    repositories {
+        mavenLocal()
+        mavenCentral()
+        maven {
+            name = 'Fabric'
+            url = 'https://maven.fabricmc.net/'
+        }
+        exclusiveContent {
+            forRepository {
+                maven { url 'https://repo.spongepowered.org/maven/' }
+            }
+            filter {
+                includeGroupByRegex 'org\\.spongepowered(\\..*)?'
+            }
+        }
+        maven {
+            name = 'Paper'
+            url = 'https://repo.papermc.io/repository/maven-public/'
+        }
+    }
+
+    plugins.withId('java-library') {
+        apply plugin: 'maven-publish'
+
+        dependencies {
+            testImplementation platform('org.junit:junit-bom:5.12.2')
+            testImplementation 'org.junit.jupiter:junit-jupiter'
+            testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+        }
+
+        tasks.withType(Test).configureEach {
+            useJUnitPlatform()
+        }
+
+        publishing {
+            publications {
+                create('mavenJava', MavenPublication) {
+                    from components.java
+                    artifactId = project.name
+                    version = rootProject.version
+                }
+            }
+            repositories {
+                mavenLocal()
+                maven {
+                    url = uri("${rootDir}/publish")
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,431 @@
+package top.tobyprime.mcedia_platforms.media;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.api.media.MediaInfo;
+import top.tobyprime.mcedia.api.media.MediaPlayInfo;
+import top.tobyprime.mcedia.api.resolver.MediaResolverSettings;
+import top.tobyprime.mcedia.api.resolver.MediaResolvers;
+import top.tobyprime.mcedia_platforms.auth.BilibiliCookie;
+import top.tobyprime.mcedia_platforms.danmaku.bilibili.BilibiliDanmakuProvider;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
+
+public final class PlatformResolverBootstrap {
+    private static final Logger LOGGER = LoggerFactory.getLogger(PlatformResolverBootstrap.class);
+    private static final AtomicBoolean INITIALIZED = new AtomicBoolean(false);
+    private static final HttpClient HTTP = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).build();
+    private static final String BILIBILI_UA = "Mozilla/5.0";
+    private static final String DOUYIN_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/121.0.2277.107 Version/17.0 Mobile/15E148 Safari/604.1";
+
+    private PlatformResolverBootstrap() {
+    }
+
+    public static void init() {
+        if (!INITIALIZED.compareAndSet(false, true)) {
+            return;
+        }
+
+        MediaResolvers.register("bilibili", PlatformResolverBootstrap::resolveBilibili);
+        MediaResolvers.register("bilibili_live", PlatformResolverBootstrap::resolveBilibiliLive);
+        MediaResolvers.register("douyin", PlatformResolverBootstrap::resolveDouyin);
+        MediaResolvers.registerParser(new BilibiliUrlParser(), 0);
+        MediaResolvers.registerParser(new DouyinUrlParser(), 0);
+        LOGGER.info("Registered platform media resolvers: bilibili, bilibili_live, douyin");
+    }
+
+    private static PlatformMedia resolveBilibili(String target) {
+        try {
+            return resolveBilibiliInternal(target);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to resolve bilibili media: " + e.getMessage(), e);
+        }
+    }
+
+    private static PlatformMedia resolveDouyin(String target) {
+        try {
+            return resolveDouyinInternal(target);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to resolve douyin media: " + e.getMessage(), e);
+        }
+    }
+
+    private static PlatformMedia resolveBilibiliInternal(String target) throws Exception {
+        var sourceUrl = normalizeBilibiliUrl(target);
+        var bvid = parseBvidFromUrl(sourceUrl);
+        if (bvid == null) {
+            throw new IllegalArgumentException("未找到 BV 号");
+        }
+
+        var page = parsePNumberFromUrl(sourceUrl);
+        var viewApi = "https://api.bilibili.com/x/web-interface/view?bvid=" + bvid;
+        var viewResponse = HTTP.send(HttpRequest.newBuilder()
+                .uri(URI.create(viewApi))
+                .header("User-Agent", BILIBILI_UA)
+                .header("Referer", "https://www.bilibili.com/")
+                .build(), HttpResponse.BodyHandlers.ofString());
+        var viewJson = parseObject(viewResponse.body());
+        if (optInt(viewJson, "code", -1) != 0) {
+            throw new IllegalStateException(optString(viewJson, "message", "获取视频信息失败"));
+        }
+
+        var data = viewJson.getAsJsonObject("data");
+        var title = data.get("title").getAsString();
+        var owner = data.getAsJsonObject("owner").get("name").getAsString();
+        long cid;
+        String partName = null;
+        var pages = optArray(data, "pages");
+        if (pages != null && !pages.isEmpty()) {
+            var index = Math.max(0, Math.min(page - 1, pages.size() - 1));
+            var currentPage = pages.get(index).getAsJsonObject();
+            cid = currentPage.get("cid").getAsLong();
+            partName = optString(currentPage, "part", null);
+            if (title.equals(partName)) {
+                partName = null;
+            }
+        } else {
+            cid = data.get("cid").getAsLong();
+        }
+
+        var playApi = "https://api.bilibili.com/x/player/playurl?bvid=" + bvid + "&cid=" + cid + "&fnval=4048";
+        var playRequestBuilder = HttpRequest.newBuilder()
+                .uri(URI.create(playApi))
+                .header("User-Agent", BILIBILI_UA)
+                .header("Referer", "https://www.bilibili.com/");
+        var cookie = BilibiliCookie.getCookie();
+        if (cookie != null && !cookie.isBlank()) {
+            playRequestBuilder.header("Cookie", cookie);
+        }
+
+        var playResponse = HTTP.send(playRequestBuilder.build(), HttpResponse.BodyHandlers.ofString());
+        var playJson = parseObject(playResponse.body());
+        if (optInt(playJson, "code", -1) != 0) {
+            throw new IllegalStateException(optString(playJson, "message", "获取播放地址失败"));
+        }
+
+        var metadata = new HashMap<String, String>();
+        metadata.put(BilibiliDanmakuProvider.KEY_BVID, bvid);
+        metadata.put(BilibiliDanmakuProvider.KEY_CID, String.valueOf(cid));
+        metadata.put(BilibiliDanmakuProvider.KEY_PAGE, String.valueOf(page));
+        var info = new MediaInfo(
+                partName == null || partName.isBlank() ? title : title + " - " + partName,
+                owner,
+                optString(data, "pic", null),
+                "bilibili",
+                metadata
+        );
+
+        var headers = new HashMap<String, String>();
+        headers.put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+        headers.put("Referer", "https://www.bilibili.com/");
+        headers.put("Origin", "https://www.bilibili.com");
+
+        var playInfo = extractBilibiliPlayInfo(playJson.getAsJsonObject("data"), headers, cookie);
+        if (playInfo == null) {
+            throw new IllegalStateException("未找到可播放流");
+        }
+
+        return new PlatformMedia(playInfo, info);
+    }
+
+    private static PlatformMedia resolveBilibiliLive(String target) {
+        try {
+            return resolveBilibiliLiveInternal(target);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to resolve bilibili live: " + e.getMessage(), e);
+        }
+    }
+
+    private static PlatformMedia resolveBilibiliLiveInternal(String input) throws Exception {
+        var roomId = extractRoomIdFromInput(input);
+        var realRoomId = getRealRoomId(roomId);
+        var streamUrl = getLiveStreamUrl(realRoomId);
+
+        var roomInfoUrl = "https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByRoom?room_id=" + realRoomId;
+        var infoResponse = HTTP.send(HttpRequest.newBuilder()
+                .uri(URI.create(roomInfoUrl))
+                .header("User-Agent", BILIBILI_UA)
+                .build(), HttpResponse.BodyHandlers.ofString());
+        var infoJson = parseObject(infoResponse.body());
+        String title = "Bilibili Live";
+        String uname = "Unknown";
+        if (optInt(infoJson, "code", -1) == 0) {
+            var liveData = infoJson.getAsJsonObject("data");
+            var roomInfo = liveData.getAsJsonObject("room_info");
+            title = optString(roomInfo, "title", title);
+            var anchorInfo = optObject(liveData, "anchor_info");
+            if (anchorInfo != null) {
+                var baseInfo = optObject(anchorInfo, "base_info");
+                if (baseInfo != null) {
+                    uname = optString(baseInfo, "uname", uname);
+                }
+            }
+        }
+
+        var headers = new HashMap<String, String>();
+        headers.put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+        headers.put("Referer", "https://www.bilibili.com/");
+        headers.put("Origin", "https://www.bilibili.com");
+        var cookie = BilibiliCookie.getCookie();
+
+        var info = new MediaInfo(title, uname, null, "bilibili");
+        return new PlatformMedia(new MediaPlayInfo(streamUrl, null, headers, cookie), info);
+    }
+
+    private static String extractRoomIdFromInput(String input) {
+        if (input == null || input.isBlank()) {
+            throw new IllegalArgumentException("input 不能为空");
+        }
+        var liveMatcher = Pattern.compile("live\\.bilibili\\.com/(\\d+)").matcher(input);
+        if (liveMatcher.find()) {
+            return liveMatcher.group(1);
+        }
+        return input.trim();
+    }
+
+    private static String getRealRoomId(String roomId) throws Exception {
+        var url = "https://api.live.bilibili.com/room/v1/Room/room_init?id=" + roomId;
+        var response = HTTP.send(HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("User-Agent", BILIBILI_UA)
+                .build(), HttpResponse.BodyHandlers.ofString());
+        var json = parseObject(response.body());
+        if (optInt(json, "code", -1) != 0) {
+            throw new IllegalStateException(optString(json, "message", "获取直播间信息失败"));
+        }
+        var data = json.getAsJsonObject("data");
+        var liveStatus = optInt(data, "live_status", 0);
+        if (liveStatus != 1) {
+            throw new IllegalStateException("直播间未开播");
+        }
+        return String.valueOf(data.get("room_id").getAsLong());
+    }
+
+    private static String getLiveStreamUrl(String realRoomId) throws Exception {
+        var infoUrl = "https://api.live.bilibili.com/xlive/web-room/v1/playUrl/playUrl?cid=" + realRoomId
+                + "&platform=h5&qn=10000";
+        var infoResponse = HTTP.send(HttpRequest.newBuilder()
+                .uri(URI.create(infoUrl))
+                .header("User-Agent", BILIBILI_UA)
+                .build(), HttpResponse.BodyHandlers.ofString());
+        var infoJson = parseObject(infoResponse.body());
+        if (optInt(infoJson, "code", -1) != 0) {
+            throw new IllegalStateException(optString(infoJson, "message", "获取直播清晰度列表失败"));
+        }
+
+        var data = infoJson.getAsJsonObject("data");
+        var qualityOptions = optArray(data, "quality_description");
+        int bestQn = 10000;
+        if (qualityOptions != null && !qualityOptions.isEmpty()) {
+            bestQn = qualityOptions.get(0).getAsJsonObject().get("qn").getAsInt();
+        }
+
+        var finalUrl = "https://api.live.bilibili.com/xlive/web-room/v1/playUrl/playUrl?cid=" + realRoomId
+                + "&platform=h5&qn=" + bestQn;
+        var finalResponse = HTTP.send(HttpRequest.newBuilder()
+                .uri(URI.create(finalUrl))
+                .header("User-Agent", BILIBILI_UA)
+                .build(), HttpResponse.BodyHandlers.ofString());
+        var finalJson = parseObject(finalResponse.body());
+        if (optInt(finalJson, "code", -1) != 0) {
+            throw new IllegalStateException(optString(finalJson, "message", "获取直播流失败"));
+        }
+
+        var durlArray = optArray(finalJson.getAsJsonObject("data"), "durl");
+        if (durlArray == null || durlArray.isEmpty()) {
+            throw new IllegalStateException("未找到可播放流");
+        }
+        return durlArray.get(0).getAsJsonObject().get("url").getAsString();
+    }
+
+    private static PlatformMedia resolveDouyinInternal(String target) throws Exception {
+        var shareUrl = normalizeDouyinUrl(target);
+        if (shareUrl == null) {
+            throw new IllegalArgumentException("未找到抖音分享链接");
+        }
+
+        var firstResponse = HTTP.send(HttpRequest.newBuilder()
+                .uri(URI.create(shareUrl))
+                .header("User-Agent", DOUYIN_UA)
+                .build(), HttpResponse.BodyHandlers.discarding());
+        var finalUrl = firstResponse.uri().toString();
+        var videoId = extractDouyinVideoId(finalUrl);
+        if (videoId == null) {
+            throw new IllegalArgumentException("未找到抖音视频 ID");
+        }
+
+        var videoPageUrl = "https://www.iesdouyin.com/share/video/" + videoId;
+        var videoPageResponse = HTTP.send(HttpRequest.newBuilder()
+                .uri(URI.create(videoPageUrl))
+                .header("User-Agent", DOUYIN_UA)
+                .build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (videoPageResponse.statusCode() / 100 != 2) {
+            throw new IllegalStateException("请求抖音详情页失败");
+        }
+
+        var routerDataJson = extractDouyinRouterData(videoPageResponse.body());
+        if (routerDataJson == null) {
+            throw new IllegalStateException("无法提取抖音页面数据");
+        }
+
+        var root = parseObject(routerDataJson);
+        var loaderData = root.getAsJsonObject("loaderData");
+        var videoPage = loaderData.getAsJsonObject("video_(id)/page");
+        var videoInfoRes = videoPage.getAsJsonObject("videoInfoRes");
+        var item = videoInfoRes.getAsJsonArray("item_list").get(0).getAsJsonObject();
+        var video = item.getAsJsonObject("video");
+        var playAddr = video.getAsJsonObject("play_addr");
+        var url = playAddr.getAsJsonArray("url_list").get(0).getAsString().replace("playwm", "play");
+
+        var info = new MediaInfo(
+                item.get("desc").getAsString(),
+                item.getAsJsonObject("author").get("nickname").getAsString(),
+                null,
+                "douyin"
+        );
+
+        var headers = new HashMap<String, String>();
+        headers.put("User-Agent", DOUYIN_UA);
+        headers.put("Referer", "https://www.douyin.com/");
+        headers.put("Origin", "https://www.douyin.com/");
+
+        return new PlatformMedia(new MediaPlayInfo(url, null, headers, null), info);
+    }
+
+    private static MediaPlayInfo extractBilibiliPlayInfo(JsonObject data, Map<String, String> headers, String cookie) {
+        return extractBilibiliPlayInfo(data, headers, cookie, MediaResolverSettings.getResolutionLimit());
+    }
+
+    private static MediaPlayInfo extractBilibiliPlayInfo(JsonObject data, Map<String, String> headers, String cookie, int maxHeight) {
+        if (data.has("dash")) {
+            var dash = data.getAsJsonObject("dash");
+            var video = optArray(dash, "video");
+            var audio = optArray(dash, "audio");
+            if (video != null && !video.isEmpty()) {
+                var bestVideo = selectBestVideoTrack(video, maxHeight);
+                String bestAudio = null;
+                if (audio != null && !audio.isEmpty()) {
+                    bestAudio = audio.get(0).getAsJsonObject().get("baseUrl").getAsString();
+                }
+                return new MediaPlayInfo(bestVideo.get("baseUrl").getAsString(), bestAudio, headers, cookie);
+            }
+        }
+
+        var durl = optArray(data, "durl");
+        if (durl != null && !durl.isEmpty()) {
+            return new MediaPlayInfo(durl.get(0).getAsJsonObject().get("url").getAsString(), null, headers, cookie);
+        }
+        return null;
+    }
+
+    private static JsonObject selectBestVideoTrack(JsonArray video, int maxHeight) {
+        if (maxHeight <= 0) {
+            return video.get(0).getAsJsonObject();
+        }
+
+        var threshold = (int) (maxHeight * 1.2f);
+        JsonObject fallback = null;
+        for (int i = 0; i < video.size(); i++) {
+            var track = video.get(i).getAsJsonObject();
+            int height = optInt(track, "height", 0);
+            if (height <= 0) {
+                continue;
+            }
+            if (height <= threshold) {
+                return track;
+            }
+            fallback = track;
+        }
+
+        return fallback != null ? fallback : video.get(video.size() - 1).getAsJsonObject();
+    }
+
+    private static String normalizeBilibiliUrl(String target) {
+        if (target == null || target.isBlank()) {
+            throw new IllegalArgumentException("target 不能为空");
+        }
+        if (target.startsWith("http://") || target.startsWith("https://")) {
+            return target;
+        }
+        return "https://www.bilibili.com/video/" + target;
+    }
+
+    private static int parsePNumberFromUrl(String url) {
+        var matcher = Pattern.compile("[?&]p=(\\d+)").matcher(url);
+        if (matcher.find()) {
+            return Integer.parseInt(matcher.group(1));
+        }
+        return 1;
+    }
+
+    private static String parseBvidFromUrl(String url) {
+        var matcher = Pattern.compile("(BV[a-zA-Z0-9]+)").matcher(url);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    private static String normalizeDouyinUrl(String target) {
+        if (target == null || target.isBlank()) {
+            return null;
+        }
+        if (target.startsWith("http://") || target.startsWith("https://")) {
+            return target;
+        }
+        return "https://v.douyin.com/" + target;
+    }
+
+    private static String extractDouyinVideoId(String url) {
+        var parts = url.split("\\?");
+        var path = parts[0];
+        var segments = path.split("/");
+        if (segments.length == 0) {
+            return null;
+        }
+        var last = segments[segments.length - 1];
+        return last.isEmpty() && segments.length > 1 ? segments[segments.length - 2] : last;
+    }
+
+    private static String extractDouyinRouterData(String html) {
+        var matcher = Pattern.compile("window\\._ROUTER_DATA\\s*=\\s*(\\{.*?})</script>", Pattern.DOTALL).matcher(html);
+        return matcher.find() ? matcher.group(1).trim() : null;
+    }
+
+    private static JsonObject parseObject(String json) {
+        return JsonParser.parseString(json).getAsJsonObject();
+    }
+
+    private static JsonObject optObject(JsonObject object, String key) {
+        var element = object.get(key);
+        return element != null && element.isJsonObject() ? element.getAsJsonObject() : null;
+    }
+
+    private static JsonArray optArray(JsonObject object, String key) {
+        var element = object.get(key);
+        return element != null && element.isJsonArray() ? element.getAsJsonArray() : null;
+    }
+
+    private static String optString(JsonObject object, String key, String defaultValue) {
+        var element = object.get(key);
+        return isPresent(element) ? element.getAsString() : defaultValue;
+    }
+
+    private static int optInt(JsonObject object, String key, int defaultValue) {
+        var element = object.get(key);
+        return isPresent(element) ? element.getAsInt() : defaultValue;
+    }
+
+    private static boolean isPresent(JsonElement element) {
+        return element != null && !element.isJsonNull();
+    }
+}

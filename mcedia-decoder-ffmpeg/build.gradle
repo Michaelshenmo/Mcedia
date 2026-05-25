@@ -1,0 +1,59 @@
+plugins {
+    id 'java-library'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release.set(21)
+}
+
+def platform = project.findProperty('platformName') ?: detectPlatform()
+
+def detectPlatform() {
+    def osName = System.getProperty('os.name').toLowerCase(java.util.Locale.ROOT)
+    def archName = System.getProperty('os.arch').toLowerCase(java.util.Locale.ROOT)
+
+    def os
+    if (osName.contains('win')) {
+        os = 'windows'
+    } else if (osName.contains('mac') || osName.contains('darwin')) {
+        os = 'macosx'
+    } else if (osName.contains('linux')) {
+        os = 'linux'
+    } else {
+        throw new GradleException("Unsupported operating system for JavaCV natives: ${osName}")
+    }
+
+    def arch
+    if (archName == 'x86_64' || archName == 'amd64') {
+        arch = 'x86_64'
+    } else if (archName == 'aarch64' || archName == 'arm64') {
+        arch = 'arm64'
+    } else if (archName in ['x86', 'i386', 'i486', 'i586', 'i686']) {
+        arch = 'x86'
+    } else {
+        throw new GradleException("Unsupported architecture for JavaCV natives: ${archName}")
+    }
+
+    return "${os}-${arch}"
+}
+
+dependencies {
+    api project(':mcedia-api')
+
+    implementation "org.jetbrains:annotations:${project.annotations_version}"
+    implementation "org.slf4j:slf4j-api:${project.sl4j_version}"
+
+    compileOnly "org.spongepowered:mixin:${project.mixin_version}"
+    annotationProcessor "org.spongepowered:mixin:${project.mixin_version}:processor"
+
+    implementation "org.bytedeco:ffmpeg:${project.ffmpeg_version}"
+    implementation "org.bytedeco:javacv:${project.javacv_version}"
+    implementation "org.bytedeco:javacpp:${project.javacpp_version}:${platform}"
+    implementation "org.bytedeco:ffmpeg:${project.ffmpeg_version}:${platform}"
+
+}

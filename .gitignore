@@ -1,0 +1,8 @@
+.gradle
+run
+publish
+build
+bin
+.cursor/
+gradle/
+.gradle-user-home/

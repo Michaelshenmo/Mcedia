@@ -1,0 +1,17 @@
+plugins {
+    id 'java-library'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release.set(21)
+}
+
+dependencies {
+    api "org.jetbrains:annotations:${project.annotations_version}"
+    implementation "org.slf4j:slf4j-api:${project.sl4j_version}"
+}
