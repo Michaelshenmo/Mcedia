@@ -183,7 +183,10 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
 
     @Override
     public void clear() {
-        soundEngineAdapter.executeOnAudioThread(this::clearInternal);
+        soundEngineAdapter.executeBlockingOnAudioThread(() -> {
+            clearInternal();
+            return null;
+        });
     }
 
     @Override
@@ -495,6 +498,7 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
         }
         return false;
     }
+
 
     private static ByteBuffer toPcm16Mono(Buffer monoBuffer) {
         return switch (monoBuffer) {
