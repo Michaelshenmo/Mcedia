@@ -6,3 +6,4 @@ bin
 .cursor/
 gradle/
 .gradle-user-home/
+.claude/settings.local.json
