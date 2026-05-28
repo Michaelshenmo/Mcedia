@@ -114,6 +114,19 @@ class SingleMediaPlayerTest {
         assertEquals(3_000L, mediaPlay.lastSeek.get());
     }
 
+    @Test
+    void runtimeStateIsPropagatedToCurrentMediaPlay() throws Exception {
+        var player = new SingleMediaPlayer();
+        var mediaPlay = new RecordingMediaPlay();
+        setField(player, "mediaPlay", mediaPlay);
+
+        player.setRuntimeVideoEnabled(false);
+        player.setRuntimeAudioEnabled(false);
+
+        assertFalse(mediaPlay.runtimeVideoEnabled);
+        assertFalse(mediaPlay.runtimeAudioEnabled);
+    }
+
     private static void setField(Object target, String name, Object value) throws Exception {
         Field field = target.getClass().getDeclaredField(name);
         field.setAccessible(true);
@@ -130,6 +143,8 @@ class SingleMediaPlayerTest {
     private static class RecordingMediaPlay extends MediaPlayImpl {
         final AtomicInteger seekCount = new AtomicInteger();
         final AtomicLong lastSeek = new AtomicLong(Long.MIN_VALUE);
+        boolean runtimeVideoEnabled = true;
+        boolean runtimeAudioEnabled = true;
 
         private RecordingMediaPlay() {
             super(new TestMedia(), new AudioProcessor(), new VideoProcessor());
@@ -139,6 +154,16 @@ class SingleMediaPlayerTest {
         public void seek(long time) {
             seekCount.incrementAndGet();
             lastSeek.set(time);
+        }
+
+        @Override
+        public void setRuntimeVideoEnabled(boolean enabled) {
+            runtimeVideoEnabled = enabled;
+        }
+
+        @Override
+        public void setRuntimeAudioEnabled(boolean enabled) {
+            runtimeAudioEnabled = enabled;
         }
 
         long getLastSeek() {

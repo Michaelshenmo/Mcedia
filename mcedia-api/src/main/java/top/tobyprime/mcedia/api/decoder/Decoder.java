@@ -64,6 +64,16 @@ public interface Decoder extends Closeable {
     void setLowOverhead(boolean lowOverhead);
 
     /**
+     * 设置是否在运行时输出视频帧。
+     */
+    void setRuntimeVideoEnabled(boolean enabled);
+
+    /**
+     * 设置是否在运行时输出音频帧。
+     */
+    void setRuntimeAudioEnabled(boolean enabled);
+
+    /**
      * 是否为低开销解码模式。
      */
     boolean isLowOverhead();

@@ -165,6 +165,26 @@ class FfmpegDecoderLifecycleTest {
     }
 
     @Test
+    void runtimeDisableClearsQueuesAndUpdatesProcessImageFlag() throws Exception {
+        FfmpegDecoder decoder = new FfmpegDecoder(new MediaPlayInfo("https://example.com/video"), new DecoderConfiguration.Builder().build());
+        TrackingVideoFrame videoFrame = new TrackingVideoFrame(10);
+        TrackingAudioFrame audioFrame = new TrackingAudioFrame(20);
+        FFmpegFrameGrabber master = new NoopFrameGrabber();
+        decoder.getVideoStream().put(videoFrame);
+        decoder.getAudioStream().put(audioFrame);
+        setField(decoder, "masterGrabber", master);
+
+        decoder.setRuntimeVideoEnabled(false);
+        decoder.setRuntimeAudioEnabled(false);
+
+        assertEquals(1, videoFrame.closeCount.get());
+        assertEquals(1, audioFrame.closeCount.get());
+        assertEquals(0, decoder.getVideoStream().size());
+        assertEquals(0, decoder.getAudioStream().size());
+        assertFalse(FfmpegProcessImageFlags.isEnableProcessImage(master));
+    }
+
+    @Test
     void closeInterruptsAndWaitsForDecoderThreadsBeforeClosingGrabbers() throws Exception {
         FfmpegDecoder decoder = new FfmpegDecoder(new MediaPlayInfo("https://example.com/video"), new DecoderConfiguration.Builder().build());
         BlockingFrameGrabber master = new BlockingFrameGrabber();

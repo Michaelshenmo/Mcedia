@@ -32,6 +32,8 @@ public class PlayerHost implements AutoCloseable {
     private final AtomicBoolean destroyRequested = new AtomicBoolean(false);
     private final AtomicBoolean destroyed = new AtomicBoolean(false);
 
+    private volatile boolean runtimeVideoEnabled = true;
+    private volatile boolean runtimeAudioEnabled = true;
     private @Nullable MediaTextureImpl texture = null;
 
     PlayerHost(MediaPlayerHostManager owner) {
@@ -105,6 +107,35 @@ public class PlayerHost implements AutoCloseable {
         player.tickAudio();
     }
 
+    public boolean hasActivePeripheral(PeripheralType type) {
+        synchronized (peripherals) {
+            for (var peripheral : peripherals) {
+                if (peripheral.getPeripheralType() == type && peripheral.isActive()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    public void syncRuntimeDecoderState() {
+        boolean videoEnabled = hasActivePeripheral(PeripheralType.Screen);
+        boolean audioEnabled = hasActivePeripheral(PeripheralType.Speaker);
+        runtimeVideoEnabled = videoEnabled;
+        runtimeAudioEnabled = audioEnabled;
+        var mediaPlayer = (SingleMediaPlayer) player;
+        mediaPlayer.setRuntimeVideoEnabled(videoEnabled);
+        mediaPlayer.setRuntimeAudioEnabled(audioEnabled);
+    }
+
+    public boolean isRuntimeVideoEnabled() {
+        return runtimeVideoEnabled;
+    }
+
+    public boolean isRuntimeAudioEnabled() {
+        return runtimeAudioEnabled;
+    }
+
     public void addPeripheral(MediaPlayerPeripheral peripheral) {
         if (destroyRequested.get() || destroyed.get()) {
             return;
@@ -116,6 +147,7 @@ public class PlayerHost implements AutoCloseable {
             }
             if (peripherals.add(peripheral)) {
                 peripheral.setPlayerHost(this);
+                syncRuntimeDecoderState();
             }
         }
     }
@@ -126,6 +158,7 @@ public class PlayerHost implements AutoCloseable {
                 return false;
             }
             peripheral.setPlayerHost(null);
+            syncRuntimeDecoderState();
             return true;
         }
     }
@@ -151,6 +184,7 @@ public class PlayerHost implements AutoCloseable {
                 }
                 iterator.remove();
                 peripheral.setPlayerHost(null);
+                syncRuntimeDecoderState();
                 if (peripheral instanceof AutoCloseable closeable) {
                     try {
                         closeable.close();
@@ -168,6 +202,7 @@ public class PlayerHost implements AutoCloseable {
                 peripheral.setPlayerHost(null);
             }
             peripherals.clear();
+            syncRuntimeDecoderState();
         }
     }
 

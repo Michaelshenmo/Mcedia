@@ -23,6 +23,8 @@ public class MediaPlayImpl implements MediaPlay {
     private boolean lowoverhead = false;
     private double speed = 1;
     private boolean paused = false;
+    private boolean runtimeVideoEnabled = true;
+    private boolean runtimeAudioEnabled = true;
 
     public MediaPlayImpl(@NotNull Media media, AudioProcessor audioProcessor, VideoProcessor videoProcessor) {
         this.media = media;
@@ -51,6 +53,8 @@ public class MediaPlayImpl implements MediaPlay {
             this.audioProcessor.setSpeed(speed);
             this.playClock.setSpeed(speed);
             this.decoder.setLowOverhead(lowoverhead);
+            this.decoder.setRuntimeVideoEnabled(runtimeVideoEnabled);
+            this.decoder.setRuntimeAudioEnabled(runtimeAudioEnabled);
             pause();
         } finally {
             this.lock.unlock();
@@ -189,6 +193,30 @@ public class MediaPlayImpl implements MediaPlay {
         try {
             if (this.decoder != null) {
                 this.decoder.setLowOverhead(lowOverhead);
+            }
+        } finally {
+            this.lock.unlock();
+        }
+    }
+
+    public void setRuntimeVideoEnabled(boolean enabled) {
+        this.runtimeVideoEnabled = enabled;
+        if (!this.lock.tryLock()) return;
+        try {
+            if (this.decoder != null) {
+                this.decoder.setRuntimeVideoEnabled(enabled);
+            }
+        } finally {
+            this.lock.unlock();
+        }
+    }
+
+    public void setRuntimeAudioEnabled(boolean enabled) {
+        this.runtimeAudioEnabled = enabled;
+        if (!this.lock.tryLock()) return;
+        try {
+            if (this.decoder != null) {
+                this.decoder.setRuntimeAudioEnabled(enabled);
             }
         } finally {
             this.lock.unlock();

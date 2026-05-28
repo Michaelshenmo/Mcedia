@@ -41,9 +41,11 @@ public class FfmpegDecoder implements Decoder {
     private final AtomicBoolean closeRequested = new AtomicBoolean(false);
     private final AtomicBoolean metricsDecoderOpened = new AtomicBoolean(false);
     private final AtomicLong decodeGeneration = new AtomicLong(0);
-    private static final int DECODER_MAX_AUDIO_FRAMES = 128; // 低于 100 frame 对于 bilibili hls 直播切片可能会卡顿 
+    private static final int DECODER_MAX_AUDIO_FRAMES = 128; // 低于 100 frame 对于 bilibili hls 直播切片可能会卡顿
     private static final int DECODER_MAX_VIDEO_FRAMES = 128;
     private final AtomicBoolean lowOverhead = new AtomicBoolean(false);
+    private final AtomicBoolean runtimeVideoEnabled = new AtomicBoolean(true);
+    private final AtomicBoolean runtimeAudioEnabled = new AtomicBoolean(true);
     private final FrameStream<VideoFrame> videoStream = new FrameStream<>(DECODER_MAX_VIDEO_FRAMES);
     private final FrameStream<AudioFrame> audioStream = new FrameStream<>(DECODER_MAX_AUDIO_FRAMES);
 
@@ -66,9 +68,12 @@ public class FfmpegDecoder implements Decoder {
         masterGrabberLock.writeLock().lock();
         audioGrabberLock.writeLock().lock();
         try {
+            runtimeVideoEnabled.set(config.getEnableVideo());
+            runtimeAudioEnabled.set(config.getEnableAudio());
             if (config.getEnableVideo()) {
                 masterGrabber = buildGrabber(mediaDisc.getUrl(), true);
                 masterGrabber.start();
+                applyRuntimeVideoState(masterGrabber);
             }
 
             if (config.getEnableAudio() && mediaDisc.hasAudio()) {
@@ -334,12 +339,45 @@ public class FfmpegDecoder implements Decoder {
 
     @Override
     public void setLowOverhead(boolean lowOverhead) {
-        this.lowOverhead.set(lowOverhead);
+        boolean wasLowOverhead = this.lowOverhead.getAndSet(lowOverhead);
+        if (wasLowOverhead && !lowOverhead) {
+            clearQueue();
+        }
+    }
+
+    @Override
+    public void setRuntimeVideoEnabled(boolean enabled) {
+        boolean effectiveEnabled = enabled && config.getEnableVideo();
+        runtimeVideoEnabled.set(effectiveEnabled);
+        masterGrabberLock.writeLock().lock();
+        try {
+            applyRuntimeVideoState(masterGrabber);
+            if (!effectiveEnabled) {
+                videoStream.clear();
+            }
+        } finally {
+            masterGrabberLock.writeLock().unlock();
+        }
+    }
+
+    @Override
+    public void setRuntimeAudioEnabled(boolean enabled) {
+        boolean effectiveEnabled = enabled && config.getEnableAudio();
+        runtimeAudioEnabled.set(effectiveEnabled);
+        if (!effectiveEnabled) {
+            audioStream.clear();
+        }
     }
 
     private void clearQueue() {
         getVideoStream().clear();
         getAudioStream().clear();
+    }
+
+    private void applyRuntimeVideoState(@Nullable FFmpegFrameGrabber grabber) {
+        if (grabber != null) {
+            FfmpegProcessImageFlags.setProcessImage(grabber, runtimeVideoEnabled.get());
+        }
     }
 
     private void interruptDecoderThread(@Nullable Thread thread) {
@@ -441,19 +479,34 @@ public class FfmpegDecoder implements Decoder {
                     continue;
                 }
 
+                boolean acceptAudio = isAudio && runtimeAudioEnabled.get();
+                boolean acceptVideo = isVideo && runtimeVideoEnabled.get() && config.getEnableVideo();
                 if (isVideo) {
                     DecoderMetrics.tracker().onVideoDecodeLatencySample(decodeElapsedNanos);
                 } else if (isAudio) {
                     DecoderMetrics.tracker().onAudioDecodeLatencySample(decodeElapsedNanos);
                 }
 
-                if (isAudio) {
+                if (acceptAudio && !acceptVideo) {
+                    getAudioStream().put(new FfmpegAudioFrame(frame));
+                    continue;
+                }
+
+                if (acceptVideo && !acceptAudio) {
+                    videoStream.put(new FfmpegVideoFrame(frame));
+                    continue;
+                }
+
+                if (acceptAudio) {
                     getAudioStream().put(new FfmpegAudioFrame(frame));
                 }
 
-                if (isVideo) {
+                if (acceptVideo) {
                     videoStream.put(new FfmpegVideoFrame(frame));
+                    continue;
                 }
+
+                frame.close();
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -508,9 +561,11 @@ public class FfmpegDecoder implements Decoder {
                     frame.close();
                     continue;
                 }
-                if (isAudio) {
+                if (isAudio && runtimeAudioEnabled.get()) {
                     audioStream.put(new FfmpegAudioFrame(frame));
+                    continue;
                 }
+                frame.close();
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

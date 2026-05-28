@@ -113,6 +113,14 @@ class MediaPlayImplTest {
         }
 
         @Override
+        public void setRuntimeVideoEnabled(boolean enabled) {
+        }
+
+        @Override
+        public void setRuntimeAudioEnabled(boolean enabled) {
+        }
+
+        @Override
         public boolean isLowOverhead() {
             return false;
         }

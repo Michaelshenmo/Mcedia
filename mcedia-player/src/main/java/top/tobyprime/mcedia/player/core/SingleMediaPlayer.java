@@ -32,6 +32,8 @@ public class SingleMediaPlayer implements MediaPlayer {
     private final VideoProcessor videoProcessor = new VideoProcessor();
     private boolean paused = false;
     private double speed = 1;
+    private boolean runtimeVideoEnabled = true;
+    private boolean runtimeAudioEnabled = true;
     private DecoderConfiguration decoderConfiguration = new DecoderConfiguration(new DecoderConfiguration.Builder());
 
     @Nullable
@@ -66,6 +68,8 @@ public class SingleMediaPlayer implements MediaPlayer {
 
             play.open(decoderConfiguration);
             play.setLowOverhead(lowOverhead);
+            play.setRuntimeVideoEnabled(runtimeVideoEnabled);
+            play.setRuntimeAudioEnabled(runtimeAudioEnabled);
             play.setSpeed(speed);
             if (paused) play.pause();
             else play.play();
@@ -266,6 +270,30 @@ public class SingleMediaPlayer implements MediaPlayer {
         try {
             if (mediaPlay != null) {
                 mediaPlay.setLowOverhead(lowOverhead);
+            }
+        } finally {
+            this.lock.unlock();
+        }
+    }
+
+    public void setRuntimeVideoEnabled(boolean enabled) {
+        this.runtimeVideoEnabled = enabled;
+        if (!this.lock.tryLock()) return;
+        try {
+            if (mediaPlay != null) {
+                mediaPlay.setRuntimeVideoEnabled(enabled);
+            }
+        } finally {
+            this.lock.unlock();
+        }
+    }
+
+    public void setRuntimeAudioEnabled(boolean enabled) {
+        this.runtimeAudioEnabled = enabled;
+        if (!this.lock.tryLock()) return;
+        try {
+            if (mediaPlay != null) {
+                mediaPlay.setRuntimeAudioEnabled(enabled);
             }
         } finally {
             this.lock.unlock();

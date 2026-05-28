@@ -156,7 +156,8 @@ public final class MediaPlayerHostManager implements AutoCloseable {
                 lastTransitionTicks.remove(host);
                 continue;
             }
-            if (!host.hasActivePeripheral()) continue;
+            host.syncRuntimeDecoderState();
+            if (!host.isRuntimeVideoEnabled()) continue;
 
             double score = importanceScore(host, frustum);
             scored.add(new HostScore(host, score));
@@ -219,10 +220,6 @@ public final class MediaPlayerHostManager implements AutoCloseable {
     }
 
     public void tickAudio() {
-        tick(PlayerHost::tickAudio);
-    }
-
-    private void tick(HostTickAction tickAction) {
         var snapshot = snapshotHosts();
 
         for (var host : snapshot) {
@@ -232,8 +229,9 @@ public final class MediaPlayerHostManager implements AutoCloseable {
                 continue;
             }
 
-            if (host.hasActivePeripheral()) {
-                tickAction.tick(host);
+            host.syncRuntimeDecoderState();
+            if (host.isRuntimeAudioEnabled()) {
+                host.tickAudio();
             }
         }
 
@@ -288,11 +286,6 @@ public final class MediaPlayerHostManager implements AutoCloseable {
             requestDestroy(host);
         }
         drainPendingDestroyHosts();
-    }
-
-    @FunctionalInterface
-    private interface HostTickAction {
-        void tick(PlayerHost host);
     }
 
     public record HostHandle(int hostId, PlayerHost host) {
