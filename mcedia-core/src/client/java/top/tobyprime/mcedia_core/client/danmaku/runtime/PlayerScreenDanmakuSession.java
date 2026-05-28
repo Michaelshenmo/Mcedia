@@ -10,12 +10,17 @@ import top.tobyprime.mcedia.player.config.Configs;
 import top.tobyprime.mcedia_core.client.danmaku.layout.DanmakuLayoutSession;
 import top.tobyprime.mcedia_core.client.danmaku.layout.DanmakuRenderEntry;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.ToDoubleFunction;
 
 public final class PlayerScreenDanmakuSession {
+    private static final Logger LOGGER = LoggerFactory.getLogger(PlayerScreenDanmakuSession.class);
     private final DanmakuLayoutSession layoutSession = new DanmakuLayoutSession();
     private final Object lock = new Object();
 
@@ -36,6 +41,7 @@ public final class PlayerScreenDanmakuSession {
             return List.of();
         }
 
+        var startedAt = System.nanoTime();
         var mediaInfo = mediaPlay.getMedia().getInfo();
         maybeRebind(mediaInfo);
         maybeStartLoad(mediaInfo);
@@ -52,7 +58,14 @@ public final class PlayerScreenDanmakuSession {
 
         var currentTimeUs = mediaPlay.getEstimatedTime();
         var newItems = localCursor.pollNewItems(currentTimeUs);
-        return layoutSession.update(currentTimeUs, trackCount, Configs.DANMAKU_DURATION, newItems, widthPredictor);
+        var entries = layoutSession.update(currentTimeUs, trackCount, Configs.DANMAKU_DURATION, newItems, widthPredictor);
+        var elapsedMs = (System.nanoTime() - startedAt) / 1_000_000.0D;
+        if (elapsedMs >= 10.0D || newItems.size() >= 100 || entries.size() >= 100) {
+            LOGGER.info("danmaku session update elapsedMs={} newItems={} entries={} loaded={} mediaTitle={} timeUs={}",
+                    String.format(Locale.ROOT, "%.3f", elapsedMs), newItems.size(), entries.size(), loaded,
+                    mediaInfo.getTitle(), currentTimeUs);
+        }
+        return entries;
     }
 
     public void clear() {
