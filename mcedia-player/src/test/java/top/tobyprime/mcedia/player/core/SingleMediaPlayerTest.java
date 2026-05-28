@@ -10,6 +10,7 @@ import top.tobyprime.mcedia.player.internal.processors.VideoProcessor;
 import top.tobyprime.mcedia.player.runtime.McediaExecutors;
 
 import java.lang.reflect.Field;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -94,10 +95,36 @@ class SingleMediaPlayerTest {
         assertEquals(2_000L, mediaPlay.lastSeek.get());
     }
 
+    @Test
+    void seekAsyncWaitsForLoadToFinish() throws Exception {
+        var player = new SingleMediaPlayer();
+        var mediaPlay = new RecordingMediaPlay();
+        var pendingLoad = new java.util.concurrent.CompletableFuture<top.tobyprime.mcedia.api.player.MediaPlay>();
+        setField(player, "mediaPlay", mediaPlay);
+        setAtomicReferenceField(player, "loadFuture", pendingLoad);
+
+        var future = player.seekAsync(3_000L);
+        assertFalse(future.isDone());
+        assertEquals(0, mediaPlay.seekCount.get());
+
+        pendingLoad.complete(mediaPlay);
+        future.get(1, TimeUnit.SECONDS);
+
+        assertEquals(1, mediaPlay.seekCount.get());
+        assertEquals(3_000L, mediaPlay.lastSeek.get());
+    }
+
     private static void setField(Object target, String name, Object value) throws Exception {
         Field field = target.getClass().getDeclaredField(name);
         field.setAccessible(true);
         field.set(target, value);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> void setAtomicReferenceField(Object target, String name, T value) throws Exception {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        ((java.util.concurrent.atomic.AtomicReference<T>) field.get(target)).set(value);
     }
 
     private static class RecordingMediaPlay extends MediaPlayImpl {

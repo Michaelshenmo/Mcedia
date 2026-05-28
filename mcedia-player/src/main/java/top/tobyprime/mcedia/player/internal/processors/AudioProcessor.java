@@ -10,13 +10,9 @@ import top.tobyprime.mcedia.player.runtime.McediaExecutors;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.concurrent.locks.ReentrantLock;
 
 public class AudioProcessor {
-    private static final Logger LOGGER = LoggerFactory.getLogger(AudioProcessor.class);
     private final ReentrantLock lock = new ReentrantLock();
     private final List<@NotNull AudioSource> audioSources = new ArrayList<>();
     @Nullable private volatile FrameStream<AudioFrame> stream;

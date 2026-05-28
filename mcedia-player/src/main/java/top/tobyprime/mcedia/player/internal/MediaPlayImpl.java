@@ -10,13 +10,9 @@ import top.tobyprime.mcedia.api.player.MediaPlay;
 import top.tobyprime.mcedia.player.internal.processors.AudioProcessor;
 import top.tobyprime.mcedia.player.internal.processors.VideoProcessor;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.concurrent.locks.ReentrantLock;
 
 public class MediaPlayImpl implements MediaPlay {
-    private static final Logger LOGGER = LoggerFactory.getLogger(MediaPlayImpl.class);
     final private @NotNull Media media;
     private final AudioProcessor audioProcessor;
     private final VideoProcessor videoProcessor;
@@ -183,7 +179,7 @@ public class MediaPlayImpl implements MediaPlay {
 
     public boolean isEnded() {
         if (decoder == null) return true;
-        return this.decoder.isEnded() && audioProcessor.isEnded() && getEstimatedTime() >= getDuration();
+        return this.decoder.isEnded() && audioProcessor.isEnded() && getTime() >= getDuration();
     }
 
     public void setLowOverhead(boolean lowOverhead) {
@@ -198,4 +194,5 @@ public class MediaPlayImpl implements MediaPlay {
             this.lock.unlock();
         }
     }
+
 }

@@ -14,9 +14,6 @@ import top.tobyprime.mcedia.player.internal.processors.AudioProcessor;
 import top.tobyprime.mcedia.player.internal.processors.VideoProcessor;
 import top.tobyprime.mcedia.player.runtime.McediaExecutors;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -26,7 +23,6 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
 public class SingleMediaPlayer implements MediaPlayer {
-    private static final Logger LOGGER = LoggerFactory.getLogger(SingleMediaPlayer.class);
     final ReentrantLock lock = new ReentrantLock();
     private final AtomicReference<@Nullable CompletableFuture<MediaPlay>> loadFuture = new AtomicReference<>(null);
     private final AtomicLong loadRequestId = new AtomicLong(0);
@@ -39,7 +35,7 @@ public class SingleMediaPlayer implements MediaPlayer {
     private DecoderConfiguration decoderConfiguration = new DecoderConfiguration(new DecoderConfiguration.Builder());
 
     @Nullable
-    private MediaPlayImpl mediaPlay;
+    private volatile MediaPlayImpl mediaPlay;
     private boolean lowOverhead;
     private volatile @Nullable Throwable loadError;
 
@@ -130,21 +126,30 @@ public class SingleMediaPlayer implements MediaPlayer {
     }
 
     public CompletableFuture<Void> seekAsync(long time) {
-        MediaPlayImpl target;
-        lock.lock();
-        try {
-            target = mediaPlay;
-        } finally {
-            lock.unlock();
+        var requestId = seekRequestId.incrementAndGet();
+        var newFuture = seekFuture.updateAndGet(previous -> previous.handle((ignored, throwable) -> null)
+                .thenCompose(ignored -> beginSeek(requestId, time)));
+        return newFuture;
+    }
+
+    private CompletableFuture<Void> beginSeek(long requestId, long time) {
+        var currentLoad = loadFuture.get();
+        if (currentLoad != null && !currentLoad.isDone()) {
+            return currentLoad.handle((ignored, throwable) -> null)
+                    .thenRunAsync(() -> {
+                        var target = mediaPlay;
+                        if (target != null) {
+                            seekCurrentMedia(requestId, target, time);
+                        }
+                    }, McediaExecutors.ioExecutor);
         }
+
+        var target = mediaPlay;
         if (target == null) {
             return CompletableFuture.completedFuture(null);
         }
 
-        var requestId = seekRequestId.incrementAndGet();
-        var newFuture = seekFuture.updateAndGet(previous -> previous.handle((ignored, throwable) -> null)
-                .thenRunAsync(() -> seekCurrentMedia(requestId, target, time), McediaExecutors.ioExecutor));
-        return newFuture;
+        return CompletableFuture.runAsync(() -> seekCurrentMedia(requestId, target, time), McediaExecutors.ioExecutor);
     }
 
     private void seekCurrentMedia(long requestId, MediaPlayImpl target, long time) {
@@ -196,16 +201,11 @@ public class SingleMediaPlayer implements MediaPlayer {
 
     @Override
     public void tickAudio() {
-        if (!this.lock.tryLock()) {
+        var target = this.mediaPlay;
+        if (target == null) {
             return;
         }
-        try {
-            if (this.mediaPlay != null) {
-                this.mediaPlay.tickAudio();
-            }
-        } finally {
-            this.lock.unlock();
-        }
+        target.tickAudio();
     }
 
     @Override
@@ -301,4 +301,5 @@ public class SingleMediaPlayer implements MediaPlayer {
             }
         });
     }
+
 }
