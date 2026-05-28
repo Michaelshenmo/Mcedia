@@ -6,7 +6,6 @@ import top.tobyprime.mcedia.player.media_resolvers.direct.DirectMediaResolverBoo
 import top.tobyprime.mcedia_core.client.command.ClientCommands;
 import top.tobyprime.mcedia_core.client.compat.SoundPhysicsCompat;
 import top.tobyprime.mcedia_core.client.config.PlayerConfigManager;
-import top.tobyprime.mcedia_core.client.entity.ClientEntityManager;
 import top.tobyprime.mcedia_core.client.events.MinecraftClientEvents;
 import top.tobyprime.mcedia_core.client.player.MediaPlayerHostManager;
 
@@ -16,7 +15,6 @@ public class FabricEntryPointClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         DirectMediaResolverBootstrap.init();
-        ClientEntityManager.init();
         MinecraftClientEvents.init();
         ClientCommands.register();
         MinecraftClientEvents.onRenderTick.addHandler((ignored) -> MediaPlayerHostManager.get().tickVideo());

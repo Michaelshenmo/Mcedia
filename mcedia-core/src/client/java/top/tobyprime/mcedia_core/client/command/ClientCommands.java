@@ -20,12 +20,10 @@ import top.tobyprime.mcedia.api.resolver.MediaResolverSettings;
 import top.tobyprime.mcedia.api.resolver.MediaResolvers;
 import top.tobyprime.mcedia.player.config.Configs;
 import top.tobyprime.mcedia.player.core.SingleMediaPlayer;
-import top.tobyprime.mcedia_core.client.entity.AbstractPlayerPeripheralEntity;
-import top.tobyprime.mcedia_core.client.entity.ClientEntityManager;
 import top.tobyprime.mcedia_core.client.audio.SpeakerAudioChannelMode;
-import top.tobyprime.mcedia_core.client.entity.PlayerScreenEntity;
-import top.tobyprime.mcedia_core.client.entity.PlayerSpeakerEntity;
 import top.tobyprime.mcedia_core.client.player.MediaPlayerHostManager;
+import top.tobyprime.mcedia_core.client.player.ScreenPeripheral;
+import top.tobyprime.mcedia_core.client.player.SpeakerPeripheral;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,122 +46,100 @@ public final class ClientCommands {
     }
 
     public static void register() {
-        ClientCommandRegistrationCallback.EVENT.register((dispatcher,
-                registryAccess) -> dispatcher.register(ClientCommandManager
-                        .literal("mcedia")
-                        .then(ClientCommandManager.literal("dev")
-                                .then(ClientCommandManager.literal("create")
-                                        .executes(context -> createHostWithPeripherals(context.getSource()))))
-                        .then(ClientCommandManager.literal("config")
-                                .executes(context -> showConfig(context.getSource()))
-                                .then(ClientCommandManager.literal("resolution")
-                                        .then(ClientCommandManager
-                                                .argument("level", StringArgumentType.word())
-                                                .suggests(ClientCommands::suggestResolutionLevels)
-                                                .executes(context -> setResolution(
-                                                        context.getSource(),
-                                                        StringArgumentType.getString(context, "level")))))
-                                .then(ClientCommandManager.literal("lowoverheadlimit")
-                                        .executes(context -> showLowOverheadLimit(context.getSource()))
-                                        .then(ClientCommandManager
-                                                .argument("count", IntegerArgumentType.integer(0))
-                                                .executes(context -> setLowOverheadLimit(
-                                                        context.getSource(),
-                                                        IntegerArgumentType.getInteger(context, "count")))))
-                                .then(ClientCommandManager.literal("lowoverheadfps")
-                                        .executes(context -> showLowOverheadFPS(context.getSource()))
-                                        .then(ClientCommandManager
-                                                .argument("fps", IntegerArgumentType.integer(1))
-                                                .executes(context -> setLowOverheadFPS(
-                                                        context.getSource(),
-                                                        IntegerArgumentType.getInteger(context, "fps")))))
-                                .then(ClientCommandManager.literal("danmaku")
-                                        .executes(context -> showDanmakuVisible(context.getSource()))
-                                        .then(ClientCommandManager
-                                                .argument("visible", BoolArgumentType.bool())
-                                                .executes(context -> setDanmakuVisible(
-                                                        context.getSource(),
-                                                        BoolArgumentType.getBool(context, "visible")))))
-                                .then(ClientCommandManager.literal("volume")
-                                        .executes(context -> showVolume(context.getSource()))
-                                        .then(ClientCommandManager
-                                                .argument("factor", DoubleArgumentType.doubleArg(0.0D, 4.0D))
-                                                .executes(context -> setVolume(
-                                                        context.getSource(),
-                                                        DoubleArgumentType.getDouble(context, "factor"))))))
-                        .then(ClientCommandManager.literal("host")
-                                .then(ClientCommandManager.literal("create")
-                                        .executes(context -> createHost(context.getSource())))
-                                .then(ClientCommandManager.literal("list")
-                                        .executes(context -> listHosts(context.getSource())))
-                                .then(ClientCommandManager.literal("seturl")
-                                        .then(ClientCommandManager
-                                                .argument("hostId", IntegerArgumentType.integer(1))
-                                                .suggests(ClientCommands::suggestHostIds)
-                                                .then(ClientCommandManager
-                                                        .argument("mediaUrl", StringArgumentType.greedyString())
-                                                        .executes(context -> setHostUrl(
-                                                                context.getSource(),
-                                                                IntegerArgumentType.getInteger(context, "hostId"),
-                                                                StringArgumentType.getString(context, "mediaUrl"))))))
-                                .then(ClientCommandManager.literal("forward")
-                                        .then(ClientCommandManager
-                                                .argument("hostId", IntegerArgumentType.integer(1))
-                                                .suggests(ClientCommands::suggestHostIds)
-                                                .then(ClientCommandManager
-                                                        .argument("seconds", IntegerArgumentType.integer(1))
-                                                        .executes(context -> seekHostRelative(
-                                                                context.getSource(),
-                                                                IntegerArgumentType.getInteger(context, "hostId"),
-                                                                IntegerArgumentType.getInteger(context, "seconds"),
-                                                                true)))))
-                                .then(ClientCommandManager.literal("backward")
-                                        .then(ClientCommandManager
-                                                .argument("hostId", IntegerArgumentType.integer(1))
-                                                .suggests(ClientCommands::suggestHostIds)
-                                                .then(ClientCommandManager
-                                                        .argument("seconds", IntegerArgumentType.integer(1))
-                                                        .executes(context -> seekHostRelative(
-                                                                context.getSource(),
-                                                                IntegerArgumentType.getInteger(context, "hostId"),
-                                                                IntegerArgumentType.getInteger(context, "seconds"),
-                                                                false)))))
-                                .then(ClientCommandManager.literal("setspeed")
-                                        .then(ClientCommandManager
-                                                .argument("hostId", IntegerArgumentType.integer(1))
-                                                .suggests(ClientCommands::suggestHostIds)
-                                                .then(ClientCommandManager
-                                                        .argument("speed", DoubleArgumentType.doubleArg(0.1D, 8.0D))
-                                                        .executes(context -> setHostSpeed(
-                                                                context.getSource(),
-                                                                IntegerArgumentType.getInteger(context, "hostId"),
-                                                                DoubleArgumentType.getDouble(context, "speed"))))))
-                                .then(ClientCommandManager.literal("pause")
-                                        .then(ClientCommandManager
-                                                .argument("hostId", IntegerArgumentType.integer(1))
-                                                .suggests(ClientCommands::suggestHostIds)
-                                                .executes(context -> setHostPaused(
-                                                        context.getSource(),
-                                                        IntegerArgumentType.getInteger(context, "hostId"),
-                                                        true))
-                                                .then(ClientCommandManager
-                                                        .argument("paused", BoolArgumentType.bool())
-                                                        .executes(context -> setHostPaused(
-                                                                context.getSource(),
-                                                                IntegerArgumentType.getInteger(context, "hostId"),
-                                                                BoolArgumentType.getBool(context, "paused"))))))
-                                .then(ClientCommandManager.literal("bind")
-                                        .then(ClientCommandManager
-                                                .argument("hostId", IntegerArgumentType.integer())
-                                                .suggests(ClientCommands::suggestHostIds)
-                                                .then(ClientCommandManager
-                                                        .argument("entityId", IntegerArgumentType.integer(1))
-                                                        .suggests(ClientCommands::suggestNearbyPeripheralEntityIds)
-                                                        .executes(context -> setEntityHost(
-                                                                context.getSource(),
-                                                                IntegerArgumentType.getInteger(context, "entityId"),
-                                                                IntegerArgumentType.getInteger(context,
-                                                                        "hostId")))))))));
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
+            var root = ClientCommandManager.literal("mcedia");
+
+            root.then(ClientCommandManager.literal("dev")
+                    .then(ClientCommandManager.literal("create")
+                            .executes(context -> createHostWithPeripherals(context.getSource()))));
+
+            root.then(ClientCommandManager.literal("config")
+                    .executes(context -> showConfig(context.getSource()))
+                    .then(ClientCommandManager.literal("resolution")
+                            .then(ClientCommandManager.argument("level", StringArgumentType.word())
+                                    .suggests(ClientCommands::suggestResolutionLevels)
+                                    .executes(context -> setResolution(
+                                            context.getSource(),
+                                            StringArgumentType.getString(context, "level")))))
+                    .then(ClientCommandManager.literal("lowoverheadlimit")
+                            .executes(context -> showLowOverheadLimit(context.getSource()))
+                            .then(ClientCommandManager.argument("count", IntegerArgumentType.integer(0))
+                                    .executes(context -> setLowOverheadLimit(
+                                            context.getSource(),
+                                            IntegerArgumentType.getInteger(context, "count")))))
+                    .then(ClientCommandManager.literal("lowoverheadfps")
+                            .executes(context -> showLowOverheadFPS(context.getSource()))
+                            .then(ClientCommandManager.argument("fps", IntegerArgumentType.integer(1))
+                                    .executes(context -> setLowOverheadFPS(
+                                            context.getSource(),
+                                            IntegerArgumentType.getInteger(context, "fps")))))
+                    .then(ClientCommandManager.literal("danmaku")
+                            .executes(context -> showDanmakuVisible(context.getSource()))
+                            .then(ClientCommandManager.argument("visible", BoolArgumentType.bool())
+                                    .executes(context -> setDanmakuVisible(
+                                            context.getSource(),
+                                            BoolArgumentType.getBool(context, "visible")))))
+                    .then(ClientCommandManager.literal("volume")
+                            .executes(context -> showVolume(context.getSource()))
+                            .then(ClientCommandManager.argument("factor", DoubleArgumentType.doubleArg(0.0D, 4.0D))
+                                    .executes(context -> setVolume(
+                                            context.getSource(),
+                                            DoubleArgumentType.getDouble(context, "factor"))))));
+
+            root.then(ClientCommandManager.literal("host")
+                    .then(ClientCommandManager.literal("create")
+                            .executes(context -> createHost(context.getSource())))
+                    .then(ClientCommandManager.literal("list")
+                            .executes(context -> listHosts(context.getSource())))
+                    .then(ClientCommandManager.literal("seturl")
+                            .then(ClientCommandManager.argument("hostId", IntegerArgumentType.integer(1))
+                                    .suggests(ClientCommands::suggestHostIds)
+                                    .then(ClientCommandManager.argument("mediaUrl", StringArgumentType.greedyString())
+                                            .executes(context -> setHostUrl(
+                                                    context.getSource(),
+                                                    IntegerArgumentType.getInteger(context, "hostId"),
+                                                    StringArgumentType.getString(context, "mediaUrl"))))))
+                    .then(ClientCommandManager.literal("forward")
+                            .then(ClientCommandManager.argument("hostId", IntegerArgumentType.integer(1))
+                                    .suggests(ClientCommands::suggestHostIds)
+                                    .then(ClientCommandManager.argument("seconds", IntegerArgumentType.integer(1))
+                                            .executes(context -> seekHostRelative(
+                                                    context.getSource(),
+                                                    IntegerArgumentType.getInteger(context, "hostId"),
+                                                    IntegerArgumentType.getInteger(context, "seconds"),
+                                                    true)))))
+                    .then(ClientCommandManager.literal("backward")
+                            .then(ClientCommandManager.argument("hostId", IntegerArgumentType.integer(1))
+                                    .suggests(ClientCommands::suggestHostIds)
+                                    .then(ClientCommandManager.argument("seconds", IntegerArgumentType.integer(1))
+                                            .executes(context -> seekHostRelative(
+                                                    context.getSource(),
+                                                    IntegerArgumentType.getInteger(context, "hostId"),
+                                                    IntegerArgumentType.getInteger(context, "seconds"),
+                                                    false)))))
+                    .then(ClientCommandManager.literal("setspeed")
+                            .then(ClientCommandManager.argument("hostId", IntegerArgumentType.integer(1))
+                                    .suggests(ClientCommands::suggestHostIds)
+                                    .then(ClientCommandManager.argument("speed", DoubleArgumentType.doubleArg(0.1D, 8.0D))
+                                            .executes(context -> setHostSpeed(
+                                                    context.getSource(),
+                                                    IntegerArgumentType.getInteger(context, "hostId"),
+                                                    DoubleArgumentType.getDouble(context, "speed"))))))
+                    .then(ClientCommandManager.literal("pause")
+                            .then(ClientCommandManager.argument("hostId", IntegerArgumentType.integer(1))
+                                    .suggests(ClientCommands::suggestHostIds)
+                                    .executes(context -> setHostPaused(
+                                            context.getSource(),
+                                            IntegerArgumentType.getInteger(context, "hostId"),
+                                            true))
+                                    .then(ClientCommandManager.argument("paused", BoolArgumentType.bool())
+                                            .executes(context -> setHostPaused(
+                                                    context.getSource(),
+                                                    IntegerArgumentType.getInteger(context, "hostId"),
+                                                    BoolArgumentType.getBool(context, "paused")))))));
+
+            dispatcher.register(root);
+        });
     }
 
     private static int createHost(FabricClientCommandSource source) {
@@ -187,11 +163,6 @@ public final class ClientCommands {
                 source.sendError(Component.literal("Client player or level not ready"));
                 return;
             }
-            if (ClientEntityManager.PLAYER_SCREEN == null || ClientEntityManager.PLAYER_SPEAKER == null) {
-                source.sendError(Component.literal("Client entities are not initialized"));
-                return;
-            }
-
             var look = player.getLookAngle();
             var horizontalLook = new Vec3(look.x, 0.0, look.z);
             if (horizontalLook.lengthSqr() < 1.0E-6) {
@@ -205,27 +176,24 @@ public final class ClientCommands {
             var screenPos = basePos.add(horizontalLook.scale(2.0));
             var yaw = 0.0F;
 
-            var screen = new PlayerScreenEntity(ClientEntityManager.PLAYER_SCREEN, level);
+            var screen = new ScreenPeripheral(level);
             screen.setScreenSize(SCREEN_WIDTH, SCREEN_HEIGHT);
-            screen.absSnapTo(screenPos.x, screenPos.y, screenPos.z, yaw, 0.0F);
-            level.addEntity(screen);
+            screen.setPosition(screenPos);
 
             var speakerOffset = screen.getScreenWidth() * 0.5F + 0.35F;
             var speakerOffsetVector = right.scale(speakerOffset);
             var leftSpeakerPos = screenPos.subtract(speakerOffsetVector);
             var rightSpeakerPos = screenPos.add(speakerOffsetVector);
 
-            var leftSpeaker = new PlayerSpeakerEntity(ClientEntityManager.PLAYER_SPEAKER, level);
-            leftSpeaker.setMaxRange(PlayerSpeakerEntity.DEFAULT_MAX_RANGE);
+            var leftSpeaker = new SpeakerPeripheral(level);
+            leftSpeaker.setMaxRange(SpeakerPeripheral.DEFAULT_MAX_RANGE);
             leftSpeaker.setAudioChannelMode(SpeakerAudioChannelMode.LEFT);
-            leftSpeaker.absSnapTo(leftSpeakerPos.x, leftSpeakerPos.y, leftSpeakerPos.z, yaw, 0.0F);
-            level.addEntity(leftSpeaker);
+            leftSpeaker.setPosition(leftSpeakerPos);
 
-            var rightSpeaker = new PlayerSpeakerEntity(ClientEntityManager.PLAYER_SPEAKER, level);
-            rightSpeaker.setMaxRange(PlayerSpeakerEntity.DEFAULT_MAX_RANGE);
+            var rightSpeaker = new SpeakerPeripheral(level);
+            rightSpeaker.setMaxRange(SpeakerPeripheral.DEFAULT_MAX_RANGE);
             rightSpeaker.setAudioChannelMode(SpeakerAudioChannelMode.RIGHT);
-            rightSpeaker.absSnapTo(rightSpeakerPos.x, rightSpeakerPos.y, rightSpeakerPos.z, yaw, 0.0F);
-            level.addEntity(rightSpeaker);
+            rightSpeaker.setPosition(rightSpeakerPos);
 
             var manager = MediaPlayerHostManager.get();
             var decoderH = decoderMaxHeight(Configs.MAX_RESOLUTION_HEIGHT);
@@ -238,9 +206,7 @@ public final class ClientCommands {
 
             source.sendFeedback(Component.literal(
                     "Created host " + handle.hostId()
-                            + " with screen " + screen.getId()
-                            + ", left speaker " + leftSpeaker.getId()
-                            + ", and right speaker " + rightSpeaker.getId()));
+                            + " with runtime screen and stereo speakers"));
         });
         return Command.SINGLE_SUCCESS;
     }
@@ -393,26 +359,6 @@ public final class ClientCommands {
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int setEntityHost(FabricClientCommandSource source, int entityId, int hostId) {
-        var client = Minecraft.getInstance();
-        client.execute(() -> {
-            var level = source.getWorld();
-            var entity = level.getEntity(entityId);
-            if (!(entity instanceof AbstractPlayerPeripheralEntity peripheral)) {
-                source.sendError(Component.literal("Entity " + entityId + " is not an AbstractPlayerPeripheralEntity"));
-                return;
-            }
-
-            var assigned = MediaPlayerHostManager.get().assignPeripheralToHost(hostId, peripheral);
-            if (!assigned) {
-                source.sendError(Component.literal("Host not found: " + hostId));
-                return;
-            }
-
-            source.sendFeedback(Component.literal("Assigned entity " + entityId + " to host " + hostId));
-        });
-        return Command.SINGLE_SUCCESS;
-    }
 
     private static int seekHostRelative(FabricClientCommandSource source, int hostId, int seconds, boolean forward) {
         var client = Minecraft.getInstance();
@@ -504,26 +450,6 @@ public final class ClientCommands {
         return SharedSuggestionProvider.suggest(suggestions, builder);
     }
 
-    private static CompletableFuture<Suggestions> suggestNearbyPeripheralEntityIds(
-            CommandContext<FabricClientCommandSource> context, SuggestionsBuilder builder) {
-        var source = context.getSource();
-        var clientPlayer = Minecraft.getInstance().player;
-        if (clientPlayer == null) {
-            return Suggestions.empty();
-        }
-
-        var maxDistanceSqr = 16.0 * 16.0;
-        var suggestions = new ArrayList<String>();
-        for (var entity : source.getWorld().entitiesForRendering()) {
-            if (!(entity instanceof AbstractPlayerPeripheralEntity)) {
-                continue;
-            }
-            if (entity.distanceToSqr(clientPlayer) <= maxDistanceSqr) {
-                suggestions.add(Integer.toString(entity.getId()));
-            }
-        }
-        return SharedSuggestionProvider.suggest(suggestions, builder);
-    }
 
     private static String rootMessage(Throwable throwable) {
         var cursor = throwable;

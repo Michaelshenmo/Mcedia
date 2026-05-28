@@ -6,10 +6,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.SubmitNodeCollector;
-import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.util.FormattedCharSequence;
-import net.minecraft.client.renderer.entity.EntityRendererProvider;
-import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.state.CameraRenderState;
@@ -25,17 +22,15 @@ import top.tobyprime.mcedia.api.player.PlaybackState;
 import top.tobyprime.mcedia.player.config.Configs;
 import top.tobyprime.mcedia_core.client.danmaku.render.DanmakuTextClipper;
 import top.tobyprime.mcedia_core.client.danmaku.render.DanmakuWidthMeasurer;
-import top.tobyprime.mcedia_core.client.entity.PlayerScreenEntity;
-import top.tobyprime.mcedia_core.client.entity.PlayerScreenEntity.ScreenFillMode;
+import top.tobyprime.mcedia_core.client.player.ScreenPeripheral;
+import top.tobyprime.mcedia_core.client.player.ScreenPeripheral.ScreenFillMode;
 
-public class PlayerScreenEntityRenderer extends EntityRenderer<PlayerScreenEntity, PlayerScreenEntityRenderer.State> {
+public final class PlayerScreenEntityRenderer {
 
-    public PlayerScreenEntityRenderer(EntityRendererProvider.Context context) {
-        super(context);
+    private PlayerScreenEntityRenderer() {
     }
 
-    @Override
-    public void submit(State state, PoseStack poseStack, SubmitNodeCollector submitNodeCollector, CameraRenderState camera) {
+    public static void submit(State state, PoseStack poseStack, SubmitNodeCollector submitNodeCollector, CameraRenderState camera) {
         poseStack.pushPose();
         poseStack.translate(0.0F, state.height * 0.5F, 0.0F);
         poseStack.mulPose(state.worldRotation);
@@ -72,7 +67,6 @@ public class PlayerScreenEntityRenderer extends EntityRenderer<PlayerScreenEntit
         submitPlaybackState(state, poseStack, submitNodeCollector);
 
         poseStack.popPose();
-        super.submit(state, poseStack, submitNodeCollector, camera);
     }
 
     private static void submitQuad(
@@ -404,26 +398,23 @@ public class PlayerScreenEntityRenderer extends EntityRenderer<PlayerScreenEntit
         return Quad.fromSize(renderWidth, renderHeight);
     }
 
-    @Override
-    public State createRenderState() {
+    public static State createRenderState() {
         return new State();
     }
 
-    @Override
-    public void extractRenderState(PlayerScreenEntity entity, State state, float partialTicks) {
-        super.extractRenderState(entity, state, partialTicks);
-        state.worldRotation.set(entity.getWorldRotation());
-        state.width = entity.getScreenWidth();
-        state.height = entity.getScreenHeight();
-        state.fillMode = entity.getFillMode();
-        state.backgroundTextureId = entity.getBackgroundTextureId();
-        state.lightCoords = applyMinimumBrightness(state.lightCoords, entity.getMinBrightness());
-        state.media = entity.getMediaPlay();
-        state.danmakuSession = entity.getDanmakuSession();
-        state.danmakuVisible = entity.isDanmakuVisible();
+    public static void extractRenderState(ScreenPeripheral peripheral, State state, int lightCoords) {
+        state.worldRotation.set(peripheral.getWorldRotation());
+        state.width = peripheral.getScreenWidth();
+        state.height = peripheral.getScreenHeight();
+        state.fillMode = peripheral.getFillMode();
+        state.backgroundTextureId = peripheral.getBackgroundTextureId();
+        state.lightCoords = applyMinimumBrightness(lightCoords, peripheral.getMinBrightness());
+        state.media = peripheral.getMediaPlay();
+        state.danmakuSession = peripheral.getDanmakuSession();
+        state.danmakuVisible = peripheral.isDanmakuVisible();
 
-        state.playbackState = entity.getPlaybackState();
-        state.errorMessage = entity.getErrorMessage();
+        state.playbackState = peripheral.getPlaybackState();
+        state.errorMessage = peripheral.getErrorMessage();
         if (state.media != null) {
             var duration = state.media.getDuration();
             state.progress = duration > 0L ? (float) state.media.getEstimatedTime() / (float) duration : 0.0F;
@@ -431,7 +422,7 @@ public class PlayerScreenEntityRenderer extends EntityRenderer<PlayerScreenEntit
             state.progress = 0.0F;
         }
 
-        var texture = entity.getTexture();
+        var texture = peripheral.getTexture();
         if (texture == null) {
             state.textureId = MissingTextureAtlasSprite.getLocation();
             state.textureWidth = 0;
@@ -443,8 +434,9 @@ public class PlayerScreenEntityRenderer extends EntityRenderer<PlayerScreenEntit
         state.textureHeight = texture.getTextureHeight();
     }
 
-    public static final class State extends EntityRenderState {
+    public static final class State {
         public final Quaternionf worldRotation = new Quaternionf();
+        public int lightCoords;
         public float width;
         public float height;
         public int textureWidth;

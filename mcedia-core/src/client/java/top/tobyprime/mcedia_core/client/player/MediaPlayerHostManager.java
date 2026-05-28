@@ -11,6 +11,7 @@ import top.tobyprime.mcedia.api.config.DecoderConfiguration;
 
 import top.tobyprime.mcedia.player.config.Configs;
 import top.tobyprime.mcedia_core.client.renderer.MediaTextureImpl;
+import top.tobyprime.mcedia_core.client.renderer.McediaRenderer;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -90,7 +91,7 @@ public final class MediaPlayerHostManager implements AutoCloseable {
             for (var each : hosts) {
                 each.removePeripheral(peripheral);
             }
-            host.addPeripheral(peripheral);
+            McediaRenderer.get().registerPeripheral(host, peripheral);
             LOGGER.debug("Assigned peripheral to hostId={}", hostId);
             return true;
         }
@@ -142,6 +143,7 @@ public final class MediaPlayerHostManager implements AutoCloseable {
         profiler.push("hostsVideo");
 
         currentTick++;
+        McediaRenderer.get().cleanup();
         var snapshot = snapshotHosts();
         var levelRenderer = Minecraft.getInstance().levelRenderer;
         var frustum = levelRenderer != null ? levelRenderer.getCapturedFrustum() : null;
@@ -220,6 +222,7 @@ public final class MediaPlayerHostManager implements AutoCloseable {
     }
 
     public void tickAudio() {
+        McediaRenderer.get().cleanup();
         var snapshot = snapshotHosts();
 
         for (var host : snapshot) {

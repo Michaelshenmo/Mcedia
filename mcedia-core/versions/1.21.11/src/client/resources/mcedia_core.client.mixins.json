@@ -13,6 +13,8 @@
   },
   "mixins": [
     "MixinGameRenderer",
+    "MixinLevelRenderer",
+    "MixinDebugRenderer",
     "MixinSoundEngine",
     "MixinSoundOptionsScreen",
     "MixinDebugScreenEntries",

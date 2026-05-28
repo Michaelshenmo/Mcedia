@@ -1,57 +1,56 @@
-package top.tobyprime.mcedia_core.client.entity;
+package top.tobyprime.mcedia_core.client.player;
 
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
-import net.minecraft.world.entity.EntityDimensions;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.Pose;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
-import org.joml.Vector3f;
 import org.jspecify.annotations.Nullable;
 import top.tobyprime.mcedia.api.player.MediaPlay;
 import top.tobyprime.mcedia.api.player.PlaybackState;
 import top.tobyprime.mcedia_core.client.danmaku.runtime.PlayerScreenDanmakuSession;
-import top.tobyprime.mcedia_core.client.interfaces.ITransform;
-import top.tobyprime.mcedia_core.client.player.PeripheralType;
-import top.tobyprime.mcedia_core.client.player.PlayerHost;
 import top.tobyprime.mcedia_core.client.renderer.MediaTextureImpl;
 
-public class PlayerScreenEntity extends AbstractPlayerPeripheralEntity implements ITransform {
-
+public final class ScreenPeripheral implements MediaPlayerPeripheral, AutoCloseable {
     private static final float MIN_SIZE = 0.01F;
 
+    private final Level level;
     private final Quaternionf worldRotation = new Quaternionf();
+    private final PlayerScreenDanmakuSession danmakuSession = new PlayerScreenDanmakuSession();
 
+    private Vec3 position = Vec3.ZERO;
     private float screenWidth = 1.0F;
     private float screenHeight = 1.0F;
     private int minBrightness = 8;
     private ScreenFillMode fillMode = ScreenFillMode.KEEP_ASPECT_COVER;
     private @Nullable Identifier backgroundTextureId = Identifier.fromNamespaceAndPath("mcedia", "textures/gui/idle_screen.png");
-    private final PlayerScreenDanmakuSession danmakuSession = new PlayerScreenDanmakuSession();
+    private @Nullable PlayerHost host;
     private boolean danmakuVisible = true;
+    private boolean closed;
 
-    public PlayerScreenEntity(EntityType<?> type, Level level) {
-        super(type, level);
-        this.noPhysics = true;
+    public ScreenPeripheral(Level level) {
+        this.level = level;
     }
 
-    @Override
-    public boolean isActive() {
-        return true;
+    public Level getLevel() {
+        return level;
     }
 
-    @Override
-    public PeripheralType getPeripheralType() {
-        return PeripheralType.Screen;
+    public Vec3 getPosition() {
+        return position;
     }
 
-    @Override
-    public Vector3f getWorldPosition() {
-        return new Vector3f((float) getX(), (float) getY(), (float) getZ());
+    public void setPosition(Vec3 position) {
+        this.position = position;
     }
 
-    @Override
+    public void setPos(double x, double y, double z) {
+        this.position = new Vec3(x, y, z);
+    }
+
     public Quaternionf getWorldRotation() {
         return new Quaternionf(worldRotation);
     }
@@ -75,11 +74,14 @@ public class PlayerScreenEntity extends AbstractPlayerPeripheralEntity implement
     public void setScreenSize(float width, float height) {
         screenWidth = Math.max(width, MIN_SIZE);
         screenHeight = Math.max(height, MIN_SIZE);
-        refreshDimensions();
     }
 
     public ScreenFillMode getFillMode() {
         return fillMode;
+    }
+
+    public void setFillMode(@Nullable ScreenFillMode fillMode) {
+        this.fillMode = fillMode == null ? ScreenFillMode.FILL : fillMode;
     }
 
     public void setMinBrightness(int minBrightness) {
@@ -88,10 +90,6 @@ public class PlayerScreenEntity extends AbstractPlayerPeripheralEntity implement
 
     public int getMinBrightness() {
         return minBrightness;
-    }
-
-    public void setFillMode(@Nullable ScreenFillMode fillMode) {
-        this.fillMode = fillMode == null ? ScreenFillMode.FILL : fillMode;
     }
 
     public @Nullable Identifier getBackgroundTextureId() {
@@ -103,15 +101,12 @@ public class PlayerScreenEntity extends AbstractPlayerPeripheralEntity implement
     }
 
     public @Nullable MediaTextureImpl getTexture() {
-        var host = getHost();
         if (host == null) {
             return null;
         }
+
         var texture = host.getTexture();
-        if (texture instanceof MediaTextureImpl impl) {
-            return impl;
-        }
-        return null;
+        return texture instanceof MediaTextureImpl impl ? impl : null;
     }
 
     public PlayerScreenDanmakuSession getDanmakuSession() {
@@ -130,32 +125,68 @@ public class PlayerScreenEntity extends AbstractPlayerPeripheralEntity implement
     }
 
     public @Nullable MediaPlay getMediaPlay() {
-        var mediaPlayer = getMediaPlayer();
-        return mediaPlayer == null ? null : mediaPlayer.getMedia();
+        return host == null ? null : host.getPlayer().getMedia();
     }
 
     public PlaybackState getPlaybackState() {
-        var host = getHost();
         return host == null ? PlaybackState.IDLE : host.getPlaybackState();
     }
 
     public @Nullable String getErrorMessage() {
-        var host = getHost();
         return host == null ? null : host.getErrorMessage();
     }
 
-    @Override
-    public EntityDimensions getDimensions(Pose pose) {
-        return EntityDimensions.scalable(screenWidth, screenHeight)
-                .withEyeHeight(screenHeight * 0.5F);
+    public AABB getBoundingBox() {
+        double halfWidth = screenWidth * 0.5F;
+        return new AABB(
+                position.x - halfWidth,
+                position.y,
+                position.z - halfWidth,
+                position.x + halfWidth,
+                position.y + screenHeight,
+                position.z + halfWidth
+        );
     }
 
     @Override
     public void setPlayerHost(@Nullable PlayerHost host) {
-        super.setPlayerHost(host);
+        this.host = host;
         if (host == null) {
             danmakuSession.clear();
         }
+    }
+
+    @Override
+    public boolean isActive() {
+        return true;
+    }
+
+    @Override
+    public boolean isAlive() {
+        return !closed && Minecraft.getInstance().level == level;
+    }
+
+    @Override
+    public double getDistance() {
+        var camera = Minecraft.getInstance().getCameraEntity();
+        return camera == null ? Double.MAX_VALUE : camera.position().distanceToSqr(position);
+    }
+
+    @Override
+    public PeripheralType getPeripheralType() {
+        return PeripheralType.Screen;
+    }
+
+    @Override
+    public boolean isVisible(@Nullable Frustum frustum) {
+        return frustum == null || frustum.isVisible(getBoundingBox());
+    }
+
+    @Override
+    public void close() {
+        closed = true;
+        host = null;
+        danmakuSession.clear();
     }
 
     public enum ScreenFillMode {

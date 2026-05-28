@@ -16,6 +16,8 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
+
+import top.tobyprime.mcedia_core.client.renderer.McediaRenderer;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
@@ -119,8 +121,8 @@ public class PlayerHost implements AutoCloseable {
     }
 
     public void syncRuntimeDecoderState() {
-        boolean videoEnabled = hasActivePeripheral(PeripheralType.Screen);
-        boolean audioEnabled = hasActivePeripheral(PeripheralType.Speaker);
+        boolean videoEnabled = McediaRenderer.get().hasActivePeripheral(this, PeripheralType.Screen);
+        boolean audioEnabled = McediaRenderer.get().hasActivePeripheral(this, PeripheralType.Speaker);
         runtimeVideoEnabled = videoEnabled;
         runtimeAudioEnabled = audioEnabled;
         var mediaPlayer = (SingleMediaPlayer) player;
@@ -158,6 +160,7 @@ public class PlayerHost implements AutoCloseable {
                 return false;
             }
             peripheral.setPlayerHost(null);
+            McediaRenderer.get().unregisterPeripheral(peripheral);
             syncRuntimeDecoderState();
             return true;
         }
@@ -184,6 +187,7 @@ public class PlayerHost implements AutoCloseable {
                 }
                 iterator.remove();
                 peripheral.setPlayerHost(null);
+                McediaRenderer.get().unregisterPeripheral(peripheral);
                 syncRuntimeDecoderState();
                 if (peripheral instanceof AutoCloseable closeable) {
                     try {
@@ -200,6 +204,14 @@ public class PlayerHost implements AutoCloseable {
         synchronized (peripherals) {
             for (var peripheral : peripherals) {
                 peripheral.setPlayerHost(null);
+                McediaRenderer.get().unregisterPeripheral(peripheral);
+                if (peripheral instanceof AutoCloseable closeable) {
+                    try {
+                        closeable.close();
+                    } catch (Exception e) {
+                        LOGGER.warn("Failed to close peripheral", e);
+                    }
+                }
             }
             peripherals.clear();
             syncRuntimeDecoderState();
