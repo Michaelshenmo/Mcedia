@@ -16,17 +16,22 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 import top.tobyprime.mcedia.api.player.MediaPlayer;
 import top.tobyprime.mcedia.api.resolver.MediaResolvers;
 import top.tobyprime.mcedia_core.client.player.MediaPlayerPeripheral;
 import top.tobyprime.mcedia_core.client.player.PlayerHost;
 
 public abstract class AbstractPlayerPeripheralEntity extends Entity implements MediaPlayerPeripheral {
+    private static final int CLIENT_ENTITY_ID_BASE = -0x7FFF0000;
+    private static final AtomicInteger CLIENT_ENTITY_ID_COUNTER = new AtomicInteger(CLIENT_ENTITY_ID_BASE);
 
     private @Nullable PlayerHost host = null;
 
     protected AbstractPlayerPeripheralEntity(EntityType<?> type, Level level) {
         super(type, level);
+        this.setId(CLIENT_ENTITY_ID_COUNTER.getAndDecrement());
     }
 
     protected @Nullable PlayerHost getHost() {
