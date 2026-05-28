@@ -117,7 +117,7 @@ public class DecoderConfiguration {
         private int maxVideoHeight = 0;
 
         private long timeout = 2500000L; // 5s time out
-        private int bufferSize = 262144; // 256kb 缓冲区
+        private int bufferSize = 10485760; // 256kb 缓冲区
         private int probesize = 4000000;
 
         public Builder disableVideo() {

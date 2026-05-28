@@ -41,8 +41,8 @@ public class FfmpegDecoder implements Decoder {
     private final AtomicBoolean closeRequested = new AtomicBoolean(false);
     private final AtomicBoolean metricsDecoderOpened = new AtomicBoolean(false);
     private final AtomicLong decodeGeneration = new AtomicLong(0);
-    private static final int DECODER_MAX_AUDIO_FRAMES = 128;
-    private static final int DECODER_MAX_VIDEO_FRAMES = 30;
+    private static final int DECODER_MAX_AUDIO_FRAMES = 128; // 低于 100 frame 对于 bilibili hls 直播切片可能会卡顿 
+    private static final int DECODER_MAX_VIDEO_FRAMES = 128;
     private final AtomicBoolean lowOverhead = new AtomicBoolean(false);
     private final FrameStream<VideoFrame> videoStream = new FrameStream<>(DECODER_MAX_VIDEO_FRAMES);
     private final FrameStream<AudioFrame> audioStream = new FrameStream<>(DECODER_MAX_AUDIO_FRAMES);
@@ -523,4 +523,5 @@ public class FfmpegDecoder implements Decoder {
             updateEndedStateIfStopped();
         }
     }
+
 }
