@@ -121,13 +121,26 @@ public class PlayerHost implements AutoCloseable {
     }
 
     public void syncRuntimeDecoderState() {
+        syncRuntimeVideoDecoderState();
+        syncRuntimeAudioDecoderState();
+    }
+
+    public void syncRuntimeVideoDecoderState() {
         boolean videoEnabled = McediaRenderer.get().hasActivePeripheral(this, PeripheralType.Screen);
-        boolean audioEnabled = McediaRenderer.get().hasActivePeripheral(this, PeripheralType.Speaker);
+        if (runtimeVideoEnabled == videoEnabled) {
+            return;
+        }
         runtimeVideoEnabled = videoEnabled;
+        ((SingleMediaPlayer) player).setRuntimeVideoEnabled(videoEnabled);
+    }
+
+    public void syncRuntimeAudioDecoderState() {
+        boolean audioEnabled = McediaRenderer.get().hasActivePeripheral(this, PeripheralType.Speaker);
+        if (runtimeAudioEnabled == audioEnabled) {
+            return;
+        }
         runtimeAudioEnabled = audioEnabled;
-        var mediaPlayer = (SingleMediaPlayer) player;
-        mediaPlayer.setRuntimeVideoEnabled(videoEnabled);
-        mediaPlayer.setRuntimeAudioEnabled(audioEnabled);
+        ((SingleMediaPlayer) player).setRuntimeAudioEnabled(audioEnabled);
     }
 
     public boolean isRuntimeVideoEnabled() {

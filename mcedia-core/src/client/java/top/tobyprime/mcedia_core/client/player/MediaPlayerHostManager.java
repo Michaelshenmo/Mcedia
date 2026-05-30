@@ -158,7 +158,7 @@ public final class MediaPlayerHostManager implements AutoCloseable {
                 lastTransitionTicks.remove(host);
                 continue;
             }
-            host.syncRuntimeDecoderState();
+            host.syncRuntimeVideoDecoderState();
             if (!host.isRuntimeVideoEnabled()) continue;
 
             double score = importanceScore(host, frustum);
@@ -232,7 +232,7 @@ public final class MediaPlayerHostManager implements AutoCloseable {
                 continue;
             }
 
-            host.syncRuntimeDecoderState();
+            host.syncRuntimeAudioDecoderState();
             if (host.isRuntimeAudioEnabled()) {
                 host.tickAudio();
             }
