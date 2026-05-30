@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 /// 统一管理多个外设, 持有一个 player
-public class PlayerHost implements AutoCloseable {
+public class PlayerHost {
     private static final Logger LOGGER = LoggerFactory.getLogger(PlayerHost.class);
 
     private final MediaPlayerHostManager owner;
@@ -261,8 +261,4 @@ public class PlayerHost implements AutoCloseable {
         }
     }
 
-    @Override
-    public void close() {
-        owner.requestDestroy(this);
-    }
 }

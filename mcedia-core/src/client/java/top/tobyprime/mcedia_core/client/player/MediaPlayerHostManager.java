@@ -23,7 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public final class MediaPlayerHostManager implements AutoCloseable {
+public final class MediaPlayerHostManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(MediaPlayerHostManager.class);
     private static final MediaPlayerHostManager INSTANCE = new MediaPlayerHostManager();
@@ -280,15 +280,6 @@ public final class MediaPlayerHostManager implements AutoCloseable {
         lastTransitionTicks.remove(host);
         host.destroyNow();
         LOGGER.info("Destroyed media player host hostId={}", hostId);
-    }
-
-    @Override
-    public void close() {
-        var snapshot = snapshotHosts();
-        for (var host : snapshot) {
-            requestDestroy(host);
-        }
-        drainPendingDestroyHosts();
     }
 
     public record HostHandle(int hostId, PlayerHost host) {
