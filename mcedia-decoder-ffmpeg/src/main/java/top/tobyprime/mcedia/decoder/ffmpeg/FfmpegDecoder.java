@@ -312,6 +312,10 @@ public class FfmpegDecoder implements Decoder {
         masterGrabberLock.writeLock().lock();
         audioGrabberLock.writeLock().lock();
         try {
+            if (isLiveStream(masterGrabber) || isLiveStream(audioGrabber)) {
+                LOGGER.debug("忽略直播流 seek 请求: target={} url={}", time, mediaDisc.getUrl());
+                return;
+            }
             decodeGeneration.incrementAndGet();
             this.clearQueue();
             try {
@@ -372,6 +376,10 @@ public class FfmpegDecoder implements Decoder {
     private void clearQueue() {
         getVideoStream().clear();
         getAudioStream().clear();
+    }
+
+    private boolean isLiveStream(@Nullable FFmpegFrameGrabber grabber) {
+        return grabber != null && grabber.getLengthInTime() < 0;
     }
 
     private void applyRuntimeVideoState(@Nullable FFmpegFrameGrabber grabber) {

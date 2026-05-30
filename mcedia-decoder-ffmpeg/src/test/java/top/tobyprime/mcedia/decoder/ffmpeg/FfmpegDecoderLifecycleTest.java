@@ -165,6 +165,32 @@ class FfmpegDecoderLifecycleTest {
     }
 
     @Test
+    void seekIgnoresLiveStream() throws Exception {
+        FfmpegDecoder decoder = new FfmpegDecoder(new MediaPlayInfo("https://example.com/live"), new DecoderConfiguration.Builder().build());
+        TrackingVideoFrame videoFrame = new TrackingVideoFrame(10);
+        TrackingAudioFrame audioFrame = new TrackingAudioFrame(20);
+        RecordingFrameGrabber master = new RecordingFrameGrabber(-1L);
+        RecordingFrameGrabber audio = new RecordingFrameGrabber(-1L);
+        decoder.getVideoStream().put(videoFrame);
+        decoder.getAudioStream().put(audioFrame);
+
+        setField(decoder, "masterGrabber", master);
+        setField(decoder, "audioGrabber", audio);
+        AtomicLong generation = (AtomicLong) getField(decoder, "decodeGeneration");
+        long before = generation.get();
+
+        decoder.seek(1_500L);
+
+        assertEquals(0, videoFrame.closeCount.get());
+        assertEquals(0, audioFrame.closeCount.get());
+        assertEquals(1, decoder.getVideoStream().size());
+        assertEquals(1, decoder.getAudioStream().size());
+        assertEquals(Long.MIN_VALUE, master.lastTimestamp);
+        assertEquals(Long.MIN_VALUE, audio.lastTimestamp);
+        assertEquals(before, generation.get());
+    }
+
+    @Test
     void runtimeDisableClearsQueuesAndUpdatesProcessImageFlag() throws Exception {
         FfmpegDecoder decoder = new FfmpegDecoder(new MediaPlayInfo("https://example.com/video"), new DecoderConfiguration.Builder().build());
         TrackingVideoFrame videoFrame = new TrackingVideoFrame(10);
