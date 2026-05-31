@@ -28,7 +28,7 @@ def targetJavaLauncher = javaToolchains.launcherFor {
     languageVersion = JavaLanguageVersion.of(targetJavaVersion)
 }
 def artifactBaseName = "${moduleProp('archives_base_name')}-mc${mcVersion}"
-def splitClientSources = moduleName in ['mcedia-core', 'mcedia-platforms']
+def splitClientSources = moduleName in ['mcedia-core', 'mcedia-cn-platforms']
 def licenseFile = rootProject.file('LICENSE')
 
 def generatedMainJavaDir = file("${buildDir}/generated/versionedSrc/${mcVersion}/main/java")
@@ -163,7 +163,7 @@ dependencies {
             bundledLibs project(':mcedia-player')
             bundledLibs project(':mcedia-decoder-ffmpeg')
             break
-        case 'mcedia-platforms':
+        case 'mcedia-cn-platforms':
             implementation project(':mcedia-api')
             implementation "com.google.code.gson:gson:${rootProject.property('gson_version')}"
             include "com.google.code.gson:gson:${rootProject.property('gson_version')}"

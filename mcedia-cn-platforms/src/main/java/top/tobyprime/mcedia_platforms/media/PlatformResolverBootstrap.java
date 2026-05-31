@@ -63,7 +63,7 @@ public final class PlatformResolverBootstrap {
     }
 
     private static PlatformMedia resolveBilibiliInternal(String target) throws Exception {
-        var sourceUrl = normalizeBilibiliUrl(target);
+        var sourceUrl = resolveBilibiliSourceUrl(target);
         var bvid = parseBvidFromUrl(sourceUrl);
         if (bvid == null) {
             throw new IllegalArgumentException("未找到 BV 号");
@@ -287,7 +287,7 @@ public final class PlatformResolverBootstrap {
         var item = videoInfoRes.getAsJsonArray("item_list").get(0).getAsJsonObject();
         var video = item.getAsJsonObject("video");
         var playAddr = video.getAsJsonObject("play_addr");
-        var url = playAddr.getAsJsonArray("url_list").get(0).getAsString().replace("playwm", "play");
+        var url = normalizeDouyinPlayUrl(playAddr.getAsJsonArray("url_list").get(0).getAsString());
 
         var info = new MediaInfo(
                 item.get("desc").getAsString(),
@@ -352,6 +352,20 @@ public final class PlatformResolverBootstrap {
         return fallback != null ? fallback : video.get(video.size() - 1).getAsJsonObject();
     }
 
+    private static String resolveBilibiliSourceUrl(String target) throws Exception {
+        var normalizedUrl = normalizeBilibiliUrl(target);
+        if (parseBvidFromUrl(normalizedUrl) != null) {
+            return normalizedUrl;
+        }
+
+        var redirected = HTTP.send(HttpRequest.newBuilder()
+                .uri(URI.create(normalizedUrl))
+                .header("User-Agent", BILIBILI_UA)
+                .header("Referer", "https://www.bilibili.com/")
+                .build(), HttpResponse.BodyHandlers.discarding());
+        return redirected.uri().toString();
+    }
+
     private static String normalizeBilibiliUrl(String target) {
         if (target == null || target.isBlank()) {
             throw new IllegalArgumentException("target 不能为空");
@@ -394,6 +408,33 @@ public final class PlatformResolverBootstrap {
         }
         var last = segments[segments.length - 1];
         return last.isEmpty() && segments.length > 1 ? segments[segments.length - 2] : last;
+    }
+
+    private static String normalizeDouyinPlayUrl(String url) {
+        if (url == null || url.isBlank()) {
+            throw new IllegalArgumentException("未找到抖音播放地址");
+        }
+
+        var normalized = url.replace("playwm", "play");
+        try {
+            var uri = URI.create(normalized);
+            var query = uri.getRawQuery();
+            if (query == null || query.isBlank()) {
+                return normalized;
+            }
+            for (var param : query.split("&")) {
+                if (!param.startsWith("video_id=")) {
+                    continue;
+                }
+                var value = java.net.URLDecoder.decode(param.substring("video_id=".length()), StandardCharsets.UTF_8);
+                if (value.startsWith("http://") || value.startsWith("https://")) {
+                    return value;
+                }
+            }
+            return normalized;
+        } catch (IllegalArgumentException ignored) {
+            return normalized;
+        }
     }
 
     private static String extractDouyinRouterData(String html) {

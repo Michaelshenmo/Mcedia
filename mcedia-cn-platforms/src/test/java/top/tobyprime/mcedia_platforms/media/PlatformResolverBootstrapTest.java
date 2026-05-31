@@ -12,6 +12,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class PlatformResolverBootstrapTest {
     private static Method selectBestVideoTrack;
     private static Method extractSupportedBilibiliInput;
+    private static Method extractSupportedDouyinInput;
+    private static Method normalizeDouyinPlayUrl;
 
     @BeforeAll
     static void setUp() throws Exception {
@@ -21,6 +23,12 @@ class PlatformResolverBootstrapTest {
         extractSupportedBilibiliInput = BilibiliUrlParser.class.getDeclaredMethod(
                 "extractSupportedInput", String.class);
         extractSupportedBilibiliInput.setAccessible(true);
+        extractSupportedDouyinInput = DouyinUrlParser.class.getDeclaredMethod(
+                "extractSupportedInput", String.class);
+        extractSupportedDouyinInput.setAccessible(true);
+        normalizeDouyinPlayUrl = PlatformResolverBootstrap.class.getDeclaredMethod(
+                "normalizeDouyinPlayUrl", String.class);
+        normalizeDouyinPlayUrl.setAccessible(true);
     }
 
     private JsonObject invokeSelect(JsonArray video, int maxHeight) throws Exception {
@@ -29,6 +37,14 @@ class PlatformResolverBootstrapTest {
 
     private String invokeExtractSupportedBilibiliInput(String input) throws Exception {
         return (String) extractSupportedBilibiliInput.invoke(null, input);
+    }
+
+    private String invokeExtractSupportedDouyinInput(String input) throws Exception {
+        return (String) extractSupportedDouyinInput.invoke(null, input);
+    }
+
+    private String invokeNormalizeDouyinPlayUrl(String input) throws Exception {
+        return (String) normalizeDouyinPlayUrl.invoke(null, input);
     }
 
     private static JsonArray videoTracks(JsonObject... tracks) {
@@ -162,5 +178,23 @@ class PlatformResolverBootstrapTest {
         var result = invokeExtractSupportedBilibiliInput(input);
 
         assertEquals("https://b23.tv/Gt0zQrG", result);
+    }
+
+    @Test
+    void extractsDouyinUrlFromShareText() throws Exception {
+        var input = "6.99 “每个人的桌面都有自己的故事” # 热门 # Windows # Windows11 # 毛玻璃质感 # 电脑美化 https://v.douyin.com/-K9yAYyQFqk/ 复制此链接，打开抖音搜索，直接观看视频！ 11/01 :1pm eOK:/ c@a.aN";
+
+        var result = invokeExtractSupportedDouyinInput(input);
+
+        assertEquals("https://v.douyin.com/-K9yAYyQFqk/", result);
+    }
+
+    @Test
+    void unwrapsNestedDouyinCdnUrlFromVideoIdQuery() throws Exception {
+        var input = "https://aweme.snssdk.com/aweme/v1/play/?video_id=https://sf6-cdn-tos.douyinstatic.com/obj/tos-cn-ve-2774/ooqMdecTGGTlLzj1peIvXyQXfFAYZeIAhZmKrK&ratio=720p&line=0";
+
+        var result = invokeNormalizeDouyinPlayUrl(input);
+
+        assertEquals("https://sf6-cdn-tos.douyinstatic.com/obj/tos-cn-ve-2774/ooqMdecTGGTlLzj1peIvXyQXfFAYZeIAhZmKrK", result);
     }
 }
