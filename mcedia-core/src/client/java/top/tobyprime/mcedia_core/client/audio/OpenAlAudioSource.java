@@ -1,5 +1,7 @@
 package top.tobyprime.mcedia_core.client.audio;
 
+import net.minecraft.client.Minecraft;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.NotNull;
@@ -214,8 +216,10 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
 
         cleanupProcessedBuffersInternal();
 
+        float masterVolume = Minecraft.getInstance().options.getSoundSourceVolume(SoundSource.MASTER);
+
         AL10.alSource3f(sourceId, AL10.AL_POSITION, (float) position.x, (float) position.y, (float) position.z);
-        AL10.alSourcef(sourceId, AL10.AL_GAIN, currentVolume * Configs.VOLUME_FACTOR);
+        AL10.alSourcef(sourceId, AL10.AL_GAIN, currentVolume * Configs.VOLUME_FACTOR * masterVolume);
         AL10.alSourcef(sourceId, AL10.AL_PITCH, currentPitch);
         AL10.alSourcef(sourceId, AL10.AL_MAX_DISTANCE, currentMaxDistance);
         AL10.alSourcef(sourceId, AL10.AL_REFERENCE_DISTANCE, 1.0F);
