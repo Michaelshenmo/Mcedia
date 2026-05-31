@@ -13,8 +13,10 @@ import net.minecraft.resources.Identifier;
 import org.lwjgl.system.MemoryUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.api.decoder.metrics.DecoderMetrics;
 import top.tobyprime.mcedia.api.video.MediaTexture;
 import top.tobyprime.mcedia.api.video.VideoFrame;
+import top.tobyprime.mcedia.player.config.Configs;
 
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -43,6 +45,7 @@ public final class MediaTextureImpl extends AbstractTexture implements MediaText
     private int pendingWidth;
     private int pendingHeight;
 
+    private volatile boolean uploadEnabled = true;
     private volatile boolean uploadThrottled;
     private long lastUploadTime;
 
@@ -66,19 +69,25 @@ public final class MediaTextureImpl extends AbstractTexture implements MediaText
         return currentHeight;
     }
 
+    public void setUploadEnabled(boolean enabled) {
+        this.uploadEnabled = enabled;
+    }
+
     public void setUploadThrottled(boolean throttled) {
         this.uploadThrottled = throttled;
     }
 
     @Override
     public void upload(VideoFrame frame) {
-        if (closed.get()) {
+        if (closed.get() || !uploadEnabled) {
             return;
         }
 
         if (uploadThrottled) {
+            int uploadFps = Math.max(1, Configs.LOW_OVERHEAD_UPLOAD_FPS);
+            long minUploadIntervalMillis = Math.max(1L, 1000L / uploadFps);
             long now = System.currentTimeMillis();
-            if (now - lastUploadTime < 66) { // 66ms ≈ 15fps
+            if (now - lastUploadTime < minUploadIntervalMillis) {
                 return;
             }
             lastUploadTime = now;
@@ -223,6 +232,7 @@ public final class MediaTextureImpl extends AbstractTexture implements MediaText
             RenderSystem.getDevice().createCommandEncoder()
                 .writeToTexture(writeTex, directBuffer, NativeImage.Format.RGBA, 0, 0, 0, 0, width, height);
         }
+        DecoderMetrics.tracker().onVideoFrameUploaded();
 
         writeIndex ^= 1;
         this.texture = writeTex;

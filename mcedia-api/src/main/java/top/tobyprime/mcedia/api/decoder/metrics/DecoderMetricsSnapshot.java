@@ -14,6 +14,7 @@ public record DecoderMetricsSnapshot(
         long audioDecodeSampleCount,
         long averageDecodeLatencyNanos,
         long averageVideoDecodeLatencyNanos,
-        long averageAudioDecodeLatencyNanos
+        long averageAudioDecodeLatencyNanos,
+        long videoFrameUploadsLastSecond
 ) {
 }

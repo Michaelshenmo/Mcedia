@@ -188,7 +188,6 @@ public class MediaPlayImpl implements MediaPlay {
 
     public void setLowOverhead(boolean lowOverhead) {
         this.lowoverhead = lowOverhead;
-        this.videoProcessor.setLowOverhead(lowOverhead);
         if (!this.lock.tryLock()) return;
         try {
             if (this.decoder != null) {

@@ -29,7 +29,7 @@ public class DebugEntryMMDecoderMetrics implements DebugScreenEntry {
 
     private static List<String> buildLines(DecoderMetricsSnapshot snapshot) {
         return List.of(
-                String.format(Locale.ROOT, "MM stream=%d sample=%d", snapshot.unreleasedDecoderStreamCount(), snapshot.decodeSampleCount()),
+                String.format(Locale.ROOT, "MM stream=%d sample=%d upload/s=%d", snapshot.unreleasedDecoderStreamCount(), snapshot.decodeSampleCount(), snapshot.videoFrameUploadsLastSecond()),
                 String.format(
                         Locale.ROOT,
                         "MM vf=%d(%.2f MiB) af=%d(%.2f MiB)",

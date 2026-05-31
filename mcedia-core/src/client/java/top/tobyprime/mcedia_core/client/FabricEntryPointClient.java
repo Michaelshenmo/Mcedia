@@ -17,7 +17,6 @@ public class FabricEntryPointClient implements ClientModInitializer {
         DirectMediaResolverBootstrap.init();
         MinecraftClientEvents.init();
         ClientCommands.register();
-        MinecraftClientEvents.onRenderTick.addHandler((ignored) -> MediaPlayerHostManager.get().tickVideo());
         MinecraftClientEvents.onAudioTick.addHandler((ignored) -> MediaPlayerHostManager.get().tickAudio());
 
         SoundPhysicsCompat.init();

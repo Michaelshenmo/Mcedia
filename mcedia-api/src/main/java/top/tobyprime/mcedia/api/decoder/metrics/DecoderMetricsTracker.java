@@ -25,5 +25,7 @@ public interface DecoderMetricsTracker {
 
     void onAudioDecodeLatencySample(long nanos);
 
+    void onVideoFrameUploaded();
+
     DecoderMetricsSnapshot snapshot();
 }

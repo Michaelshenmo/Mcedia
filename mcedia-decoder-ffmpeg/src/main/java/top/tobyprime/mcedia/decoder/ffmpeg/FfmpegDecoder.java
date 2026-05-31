@@ -25,6 +25,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class FfmpegDecoder implements Decoder {
     private static final Logger LOGGER = LoggerFactory.getLogger(FfmpegDecoder.class);
+    private static final int LOW_OVERHEAD_MAX_VIDEO_FRAMES = 8;
 
     static {
         FFmpegLogCallback.set();
@@ -343,10 +344,7 @@ public class FfmpegDecoder implements Decoder {
 
     @Override
     public void setLowOverhead(boolean lowOverhead) {
-        boolean wasLowOverhead = this.lowOverhead.getAndSet(lowOverhead);
-        if (wasLowOverhead && !lowOverhead) {
-            clearQueue();
-        }
+        this.lowOverhead.set(lowOverhead);
     }
 
     @Override
@@ -376,6 +374,12 @@ public class FfmpegDecoder implements Decoder {
     private void clearQueue() {
         getVideoStream().clear();
         getAudioStream().clear();
+    }
+
+    private void waitForLowOverheadVideoCapacity() throws InterruptedException {
+        while (lowOverhead.get() && videoStream.size() >= LOW_OVERHEAD_MAX_VIDEO_FRAMES) {
+            Thread.sleep(1L);
+        }
     }
 
     private boolean isLiveStream(@Nullable FFmpegFrameGrabber grabber) {
@@ -501,6 +505,9 @@ public class FfmpegDecoder implements Decoder {
                 }
 
                 if (acceptVideo && !acceptAudio) {
+                    if (lowOverhead.get()) {
+                        waitForLowOverheadVideoCapacity();
+                    }
                     videoStream.put(new FfmpegVideoFrame(frame));
                     continue;
                 }
@@ -510,6 +517,9 @@ public class FfmpegDecoder implements Decoder {
                 }
 
                 if (acceptVideo) {
+                    if (lowOverhead.get()) {
+                        waitForLowOverheadVideoCapacity();
+                    }
                     videoStream.put(new FfmpegVideoFrame(frame));
                     continue;
                 }

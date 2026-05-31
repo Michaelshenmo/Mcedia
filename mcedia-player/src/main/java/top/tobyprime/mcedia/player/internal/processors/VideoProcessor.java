@@ -4,7 +4,6 @@ import org.jetbrains.annotations.Nullable;
 import top.tobyprime.mcedia.api.stream.FrameStream;
 import top.tobyprime.mcedia.api.video.MediaTexture;
 import top.tobyprime.mcedia.api.video.VideoFrame;
-import top.tobyprime.mcedia.player.config.Configs;
 import top.tobyprime.mcedia.player.runtime.McediaExecutors;
 
 import java.util.concurrent.Executor;
@@ -14,8 +13,6 @@ public class VideoProcessor {
     @Nullable
     private FrameStream<VideoFrame> stream;
     private final Executor closeExecutor;
-    private volatile boolean lowOverhead;
-    private long lastUploadTime;
 
     public VideoProcessor() {
         this(McediaExecutors.ioExecutor);
@@ -31,10 +28,6 @@ public class VideoProcessor {
 
     public void bindStream(@Nullable FrameStream<VideoFrame> stream) {
         this.stream = stream;
-    }
-
-    public void setLowOverhead(boolean lowOverhead) {
-        this.lowOverhead = lowOverhead;
     }
 
     public void tick(long time) {
@@ -59,15 +52,6 @@ public class VideoProcessor {
         }
 
         if (lastNonNullFrame != null) {
-            if (lowOverhead) {
-                long now = System.currentTimeMillis();
-                if (now - lastUploadTime < 1000 / Configs.LOW_OVERHEAD_UPLOAD_FPS) {
-                    closeExecutor.execute(lastNonNullFrame::close);
-                    return;
-                }
-                lastUploadTime = now;
-            }
-
             var tex = texture;
             var frame = lastNonNullFrame;
             closeExecutor.execute(() -> {

@@ -1,5 +1,6 @@
 package top.tobyprime.mcedia.api.decoder.metrics;
 
+import java.util.ArrayDeque;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 
@@ -18,6 +19,8 @@ public class DefaultDecoderMetricsTracker implements DecoderMetricsTracker {
     private final LongAdder totalDecodeLatencyNanos = new LongAdder();
     private final LongAdder totalVideoDecodeLatencyNanos = new LongAdder();
     private final LongAdder totalAudioDecodeLatencyNanos = new LongAdder();
+    private final Object videoUploadWindowLock = new Object();
+    private final ArrayDeque<Long> videoUploadTimestampsMillis = new ArrayDeque<>();
 
     @Override
     public void onDecoderOpened() {
@@ -100,6 +103,15 @@ public class DefaultDecoderMetricsTracker implements DecoderMetricsTracker {
     }
 
     @Override
+    public void onVideoFrameUploaded() {
+        long now = System.currentTimeMillis();
+        synchronized (videoUploadWindowLock) {
+            videoUploadTimestampsMillis.addLast(now);
+            trimVideoUploadWindow(now);
+        }
+    }
+
+    @Override
     public DecoderMetricsSnapshot snapshot() {
         long decodeCount = decodeSampleCount.sum();
         long videoCount = videoDecodeSampleCount.sum();
@@ -117,6 +129,11 @@ public class DefaultDecoderMetricsTracker implements DecoderMetricsTracker {
         long videoBytesUnreleased = unreleasedVideoFrameBytes.sum();
         long audioCountUnreleased = unreleasedAudioFrameCount.sum();
         long audioBytesUnreleased = unreleasedAudioFrameBytes.sum();
+        long videoUploadsLastSecond;
+        synchronized (videoUploadWindowLock) {
+            trimVideoUploadWindow(System.currentTimeMillis());
+            videoUploadsLastSecond = videoUploadTimestampsMillis.size();
+        }
 
         return new DecoderMetricsSnapshot(
                 videoCountUnreleased,
@@ -129,7 +146,15 @@ public class DefaultDecoderMetricsTracker implements DecoderMetricsTracker {
                 audioCount,
                 avgDecode,
                 avgVideo,
-                avgAudio
+                avgAudio,
+                videoUploadsLastSecond
         );
+    }
+
+    private void trimVideoUploadWindow(long now) {
+        long cutoff = now - 1_000L;
+        while (!videoUploadTimestampsMillis.isEmpty() && videoUploadTimestampsMillis.peekFirst() < cutoff) {
+            videoUploadTimestampsMillis.removeFirst();
+        }
     }
 }

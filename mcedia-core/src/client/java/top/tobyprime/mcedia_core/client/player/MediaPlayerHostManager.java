@@ -138,15 +138,13 @@ public final class MediaPlayerHostManager {
         }
     }
 
-    public void tickVideo() {
+    public void tickVideo(@Nullable Frustum frustum) {
         ProfilerFiller profiler = Profiler.get();
         profiler.push("hostsVideo");
 
         currentTick++;
         McediaRenderer.get().cleanup();
         var snapshot = snapshotHosts();
-        var levelRenderer = Minecraft.getInstance().levelRenderer;
-        var frustum = levelRenderer != null ? levelRenderer.getCapturedFrustum() : null;
 
         var scored = new ArrayList<HostScore>();
 
@@ -172,9 +170,10 @@ public final class MediaPlayerHostManager {
         for (int i = 0; i < scored.size(); i++) {
             var host = scored.get(i).host;
             boolean throttled = limit >= 0 && i >= limit;
+            boolean visible = scored.get(i).score > 0;
 
             applyLowOverheadWithHysteresis(host, throttled);
-            applyTextureThrottle(host, throttled);
+            applyTextureUploadState(host, visible, throttled);
             host.tickVideo();
         }
 
@@ -198,11 +197,12 @@ public final class MediaPlayerHostManager {
 
     private record HostScore(PlayerHost host, double score) {}
 
-    /** 设置纹理上传节流（15fps），节省 GPU 带宽。 */
-    private static void applyTextureThrottle(PlayerHost host, boolean throttled) {
+    /** 视锥外时直接跳过上传；可见时按 throttled 状态做 15fps 节流。 */
+    private static void applyTextureUploadState(PlayerHost host, boolean visible, boolean throttled) {
         try {
             if (host.getTexture() instanceof MediaTextureImpl tex) {
-                tex.setUploadThrottled(throttled);
+                tex.setUploadEnabled(visible);
+                tex.setUploadThrottled(visible && throttled);
             }
         } catch (Exception ignored) {
         }
