@@ -167,15 +167,17 @@ public final class MediaPlayerHostManager {
         // 按重要度降序排列
         scored.sort(Comparator.comparingDouble(HostScore::score).reversed());
 
-        int limit = Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT;
+        int activeLimit = Configs.ACTIVE_DECODER_LIMIT;
+        int throttledLimit = Math.max(Configs.THROTTLED_DECODER_LIMIT, activeLimit);
         int activeCount = 0;
         int throttledCount = 0;
         int suspendedCount = 0;
         for (int i = 0; i < scored.size(); i++) {
             var host = scored.get(i).host;
-            boolean inBudget = limit < 0 || i < limit;
+            boolean active = activeLimit < 0 || i < activeLimit;
+            boolean throttled = !active && (throttledLimit < 0 || i < throttledLimit);
             boolean visible = scored.get(i).score > 0;
-            var targetState = decideResidencyState(host, inBudget, visible);
+            var targetState = decideResidencyState(host, active, throttled, visible);
 
             switch (targetState) {
                 case ACTIVE -> activeCount++;
@@ -214,9 +216,12 @@ public final class MediaPlayerHostManager {
         SUSPENDED
     }
 
-    private DecoderResidencyState decideResidencyState(PlayerHost host, boolean inBudget, boolean visible) {
-        if (inBudget) {
+    private DecoderResidencyState decideResidencyState(PlayerHost host, boolean active, boolean throttled, boolean visible) {
+        if (active) {
             return DecoderResidencyState.ACTIVE;
+        }
+        if (throttled) {
+            return DecoderResidencyState.THROTTLED;
         }
 
         var prev = residencyStates.get(host);
