@@ -26,11 +26,11 @@ public final class CommandBilibili {
         LOGGER.info("CommandBilibili.register: 注册命令");
         LiteralArgumentBuilder<FabricClientCommandSource> bilibiliNode = ClientCommandManager.literal("bilibili")
                 .then(ClientCommandManager.literal("login").executes(context -> {
-                    LOGGER.info("执行 /mcedia bilibili login 命令");
+                    LOGGER.info("执行 /mcedia platforms bilibili login 命令");
                     if (BilibiliAuthManager.getInstance().getAccountStatus().isLoggedIn) {
                         LOGGER.info("用户已登录，提示已登录信息");
                         send(context.getSource(), "你已经登录为: §b" + BilibiliAuthManager.getInstance().getAccountStatus().username);
-                        send(context.getSource(), "如需登出，请使用 §a/mcedia bilibili logout");
+                        send(context.getSource(), "如需登出，请使用 §a/mcedia platforms bilibili logout");
                     } else {
                         LOGGER.info("用户未登录，启动登录流程");
                         login(context.getSource());
@@ -56,7 +56,7 @@ public final class CommandBilibili {
                     }
                     return 1;
                 }));
-        dispatcher.register(ClientCommandManager.literal("mcedia").then(bilibiliNode));
+        dispatcher.register(ClientCommandManager.literal("mcedia").then(ClientCommandManager.literal("platforms").then(bilibiliNode)));
     }
 
     private static void login(FabricClientCommandSource source) {
