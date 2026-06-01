@@ -8,8 +8,8 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.api.config.DecoderConfiguration;
-
 import top.tobyprime.mcedia.api.decoder.metrics.DecoderMetrics;
+import top.tobyprime.mcedia.api.player.PlaybackState;
 import top.tobyprime.mcedia.player.config.Configs;
 import top.tobyprime.mcedia_core.client.renderer.MediaTextureImpl;
 import top.tobyprime.mcedia_core.client.renderer.McediaRenderer;
@@ -147,7 +147,7 @@ public final class MediaPlayerHostManager {
         McediaRenderer.get().cleanup();
         var snapshot = snapshotHosts();
 
-        var scored = new ArrayList<HostScore>();
+        var candidates = new ArrayList<HostCandidate>();
 
         for (var host : snapshot) {
             host.cleanupPeripherals();
@@ -160,31 +160,36 @@ public final class MediaPlayerHostManager {
             host.syncRuntimeVideoDecoderState();
             if (!host.isRuntimeVideoEnabled()) continue;
 
-            double score = importanceScore(host, frustum);
-            scored.add(new HostScore(host, score));
+            candidates.add(buildCandidate(host, frustum));
         }
 
-        // 按重要度降序排列
-        scored.sort(Comparator.comparingDouble(HostScore::score).reversed());
+        var activeCandidates = candidates.stream()
+                .filter(HostCandidate::activeEligible)
+                .sorted(Comparator.comparingDouble(HostCandidate::distancePriority))
+                .toList();
+        var activeHosts = pickHosts(activeCandidates, Configs.ACTIVE_DECODER_LIMIT);
 
-        int activeLimit = Configs.ACTIVE_DECODER_LIMIT;
-        int throttledLimit = Math.max(Configs.THROTTLED_DECODER_LIMIT, activeLimit);
+        var throttledCandidates = candidates.stream()
+                .filter(candidate -> !activeHosts.contains(candidate.host()))
+                .sorted(Comparator.comparingDouble(HostCandidate::distancePriority))
+                .toList();
+        var throttledHosts = pickHosts(throttledCandidates, Configs.THROTTLED_DECODER_LIMIT);
+
         int activeCount = 0;
         int throttledCount = 0;
         int suspendedCount = 0;
-        for (int i = 0; i < scored.size(); i++) {
-            var host = scored.get(i).host;
-            boolean active = activeLimit < 0 || i < activeLimit;
-            boolean throttled = !active && (throttledLimit < 0 || i < throttledLimit);
-            boolean visible = scored.get(i).score > 0;
-            var targetState = decideResidencyState(host, active, throttled, visible);
+        for (var candidate : candidates) {
+            var host = candidate.host();
+            boolean active = activeHosts.contains(host);
+            boolean throttled = !active && throttledHosts.contains(host);
+            var targetState = decideResidencyState(host, active, throttled);
 
             switch (targetState) {
                 case ACTIVE -> activeCount++;
                 case THROTTLED -> throttledCount++;
                 case SUSPENDED -> suspendedCount++;
             }
-            applyResidencyState(host, targetState, visible);
+            applyResidencyState(host, targetState, candidate.visible());
             host.tickVideo();
         }
         DecoderMetrics.tracker().onDecoderStateChanged(
@@ -194,21 +199,40 @@ public final class MediaPlayerHostManager {
         profiler.pop();
     }
 
-    /** 计算 host 在视锥中的可见重要度（距相机越近值越大）。 */
-    private static double importanceScore(PlayerHost host, @Nullable Frustum frustum) {
-        double best = 0;
-        for (var p : host.getPeripherals()) {
-            if (!p.isActive()) continue;
-            if (frustum != null && !p.isVisible(frustum)) continue;
-            double dSq = p.getDistance();
-            if (dSq <= 0) dSq = 0.01;
-            double s = 1.0 / dSq;
-            if (s > best) best = s;
+    private static HostCandidate buildCandidate(PlayerHost host, @Nullable Frustum frustum) {
+        double nearestDistanceSq = Double.POSITIVE_INFINITY;
+        boolean visible = false;
+        for (var peripheral : host.getPeripherals()) {
+            if (!peripheral.isActive()) {
+                continue;
+            }
+            double distanceSq = Math.max(peripheral.getDistance(), 0.01D);
+            nearestDistanceSq = Math.min(nearestDistanceSq, distanceSq);
+            if (!visible && (frustum == null || peripheral.isVisible(frustum))) {
+                visible = true;
+            }
         }
-        return best;
+        return new HostCandidate(
+                host,
+                visible,
+                nearestDistanceSq,
+                host.getPlaybackState() == PlaybackState.PLAYING && visible
+        );
     }
 
-    private record HostScore(PlayerHost host, double score) {}
+    private static Set<PlayerHost> pickHosts(List<HostCandidate> candidates, int limit) {
+        if (limit == 0 || candidates.isEmpty()) {
+            return Set.of();
+        }
+        int endExclusive = limit < 0 ? candidates.size() : Math.min(limit, candidates.size());
+        var selected = new LinkedHashSet<PlayerHost>();
+        for (int i = 0; i < endExclusive; i++) {
+            selected.add(candidates.get(i).host());
+        }
+        return selected;
+    }
+
+    private record HostCandidate(PlayerHost host, boolean visible, double distancePriority, boolean activeEligible) {}
 
     private enum DecoderResidencyState {
         ACTIVE,
@@ -216,7 +240,7 @@ public final class MediaPlayerHostManager {
         SUSPENDED
     }
 
-    private DecoderResidencyState decideResidencyState(PlayerHost host, boolean active, boolean throttled, boolean visible) {
+    private DecoderResidencyState decideResidencyState(PlayerHost host, boolean active, boolean throttled) {
         if (active) {
             return DecoderResidencyState.ACTIVE;
         }

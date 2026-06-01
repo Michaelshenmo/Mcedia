@@ -8,7 +8,7 @@ public class Configs {
     public static boolean SHOW_LOAD_INFO = true;
     /** ACTIVE 驻留态的最大 decoder 数量 */
     public static int ACTIVE_DECODER_LIMIT = 1;
-    /** THROTTLED 驻留态的最大 decoder 数量（超过后进入 SUSPENDED） */
+    /** THROTTLED 驻留态的最大 decoder 数量（独立于 ACTIVE 名额，超过后进入 SUSPENDED） */
     public static int THROTTLED_DECODER_LIMIT = 5;
     /** low overhead 模式下的上传帧率限制 */
     public static int LOW_OVERHEAD_UPLOAD_FPS = 5;
