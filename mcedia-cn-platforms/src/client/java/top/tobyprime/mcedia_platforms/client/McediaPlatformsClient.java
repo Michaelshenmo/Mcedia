@@ -3,6 +3,7 @@ package top.tobyprime.mcedia_platforms.client;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
+import net.fabricmc.loader.api.FabricLoader;
 import top.tobyprime.mcedia_platforms.auth.BilibiliAuthManager;
 import top.tobyprime.mcedia_platforms.auth.BilibiliCookie;
 import top.tobyprime.mcedia_platforms.commands.CommandBilibili;
@@ -14,7 +15,7 @@ import java.nio.file.Path;
 import java.util.Properties;
 
 public final class McediaPlatformsClient implements ClientModInitializer {
-    private static final Path CONFIG_PATH = Path.of(System.getProperty("user.home"), ".mcedia", "mcedia_platforms.properties");
+    private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("mcedia_platforms.properties");
     private static final Path COOKIE_PATH = Path.of(System.getProperty("user.home"), ".mcedia", "cookie.properties");
 
     @Override
@@ -35,7 +36,6 @@ public final class McediaPlatformsClient implements ClientModInitializer {
                 try (var input = Files.newInputStream(CONFIG_PATH)) {
                     props.load(input);
                 }
-                BilibiliCookie.fromProperties(props);
             }
             if (Files.exists(COOKIE_PATH)) {
                 var cookies = new Properties();
@@ -51,9 +51,9 @@ public final class McediaPlatformsClient implements ClientModInitializer {
     public static void saveConfig() {
         try {
             Files.createDirectories(CONFIG_PATH.getParent());
+            Files.createDirectories(COOKIE_PATH.getParent());
             var props = new Properties();
             var cookies = new Properties();
-            BilibiliCookie.writeToProperties(props);
             BilibiliCookie.writeToProperties(cookies);
             try (var output = Files.newOutputStream(CONFIG_PATH)) {
                 props.store(output, "Mcedia Platforms config");
