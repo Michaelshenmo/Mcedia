@@ -17,6 +17,7 @@ import top.tobyprime.mcedia.player.runtime.McediaExecutors;
 import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
@@ -35,10 +36,12 @@ public class SingleMediaPlayer implements MediaPlayer {
     private boolean runtimeVideoEnabled = true;
     private boolean runtimeAudioEnabled = true;
     private DecoderConfiguration decoderConfiguration = new DecoderConfiguration(new DecoderConfiguration.Builder());
+    private final AtomicBoolean transitionScheduled = new AtomicBoolean(false);
 
     @Nullable
     private volatile MediaPlayImpl mediaPlay;
     private boolean lowOverhead;
+    private volatile boolean decoderSuspended;
     private volatile @Nullable Throwable loadError;
 
     public CompletableFuture<MediaPlay> playAsync(Supplier<Media> mediaSupplier) {
@@ -67,12 +70,10 @@ public class SingleMediaPlayer implements MediaPlayer {
             }
 
             play.open(decoderConfiguration);
-            play.setLowOverhead(lowOverhead);
-            play.setRuntimeVideoEnabled(runtimeVideoEnabled);
-            play.setRuntimeAudioEnabled(runtimeAudioEnabled);
             play.setSpeed(speed);
             if (paused) play.pause();
             else play.play();
+            reconcileTargetState(play);
             return (MediaPlay) play;
         });
         var preFuture = this.loadFuture.getAndSet(newFuture);
@@ -186,6 +187,7 @@ public class SingleMediaPlayer implements MediaPlayer {
         if (target != null) {
             McediaExecutors.ioExecutor.execute(target::close);
         }
+        decoderSuspended = false;
         loadError = null;
     }
 
@@ -235,77 +237,6 @@ public class SingleMediaPlayer implements MediaPlayer {
     @Override
     public void setDecoderConfiguration(@NotNull DecoderConfiguration decoderConfiguration) {
         this.decoderConfiguration = Objects.requireNonNull(decoderConfiguration, "decoderConfiguration");
-        this.lock.lock();
-        try {
-            if (mediaPlay != null) {
-                mediaPlay.open(decoderConfiguration);
-            }
-        } finally {
-            this.lock.unlock();
-        }
-    }
-
-    @Override
-    public double getSpeed() {
-        return this.speed;
-    }
-
-    @Override
-    public void setSpeed(double speed) {
-        this.speed = speed;
-        this.lock.lock();
-        try {
-            if (mediaPlay != null) {
-                mediaPlay.setSpeed(speed);
-            }
-        } finally {
-            this.lock.unlock();
-        }
-    }
-
-    @Override
-    public void setLowOverhead(boolean lowOverhead) {
-        this.lowOverhead = lowOverhead;
-        if (!this.lock.tryLock()) return;
-        try {
-            if (mediaPlay != null) {
-                mediaPlay.setLowOverhead(lowOverhead);
-            }
-        } finally {
-            this.lock.unlock();
-        }
-    }
-
-    public void setRuntimeVideoEnabled(boolean enabled) {
-        this.runtimeVideoEnabled = enabled;
-        if (!this.lock.tryLock()) return;
-        try {
-            if (mediaPlay != null) {
-                mediaPlay.setRuntimeVideoEnabled(enabled);
-            }
-        } finally {
-            this.lock.unlock();
-        }
-    }
-
-    public void setRuntimeAudioEnabled(boolean enabled) {
-        this.runtimeAudioEnabled = enabled;
-        if (!this.lock.tryLock()) return;
-        try {
-            if (mediaPlay != null) {
-                mediaPlay.setRuntimeAudioEnabled(enabled);
-            }
-        } finally {
-            this.lock.unlock();
-        }
-    }
-
-    public boolean isPaused() {
-        return this.paused;
-    }
-
-    public void setPaused(boolean paused) {
-        this.paused = paused;
         MediaPlayImpl target;
         this.lock.lock();
         try {
@@ -319,15 +250,172 @@ public class SingleMediaPlayer implements MediaPlayer {
         McediaExecutors.ioExecutor.execute(() -> {
             this.lock.lock();
             try {
-                if (mediaPlay != target || this.paused != paused) {
+                if (mediaPlay != target) {
                     return;
                 }
-                if (paused) target.pause();
-                else target.play();
             } finally {
                 this.lock.unlock();
             }
+            target.open(this.decoderConfiguration);
+            reconcileTargetState(target);
         });
+    }
+
+    @Override
+    public double getSpeed() {
+        return this.speed;
+    }
+
+    @Override
+    public void setSpeed(double speed) {
+        this.speed = speed;
+        scheduleTransitionIfNeeded();
+    }
+
+    @Override
+    public void setLowOverhead(boolean lowOverhead) {
+        this.lowOverhead = lowOverhead;
+        scheduleTransitionIfNeeded();
+    }
+
+    public void setRuntimeVideoEnabled(boolean enabled) {
+        this.runtimeVideoEnabled = enabled;
+        scheduleTransitionIfNeeded();
+    }
+
+    public void setRuntimeAudioEnabled(boolean enabled) {
+        this.runtimeAudioEnabled = enabled;
+        scheduleTransitionIfNeeded();
+    }
+
+    public boolean isPaused() {
+        return this.paused;
+    }
+
+    public void setPaused(boolean paused) {
+        this.paused = paused;
+        scheduleTransitionIfNeeded();
+    }
+
+    public void suspendDecoder() {
+        decoderSuspended = true;
+        scheduleTransitionIfNeeded();
+    }
+
+    public void resumeDecoder() {
+        decoderSuspended = false;
+        scheduleTransitionIfNeeded();
+    }
+
+    public boolean isDecoderSuspended() {
+        return decoderSuspended;
+    }
+
+    private void scheduleTransitionIfNeeded() {
+        if (!transitionScheduled.compareAndSet(false, true)) {
+            return;
+        }
+        McediaExecutors.ioExecutor.execute(this::runTransitionLoop);
+    }
+
+    private void runTransitionLoop() {
+        try {
+            while (true) {
+                MediaPlayImpl target;
+                boolean desiredSuspended;
+                boolean desiredLowOverhead;
+                boolean desiredRuntimeVideoEnabled;
+                boolean desiredRuntimeAudioEnabled;
+                boolean desiredPaused;
+                double desiredSpeed;
+                this.lock.lock();
+                try {
+                    target = mediaPlay;
+                    desiredSuspended = decoderSuspended;
+                    desiredLowOverhead = lowOverhead;
+                    desiredRuntimeVideoEnabled = runtimeVideoEnabled;
+                    desiredRuntimeAudioEnabled = runtimeAudioEnabled;
+                    desiredPaused = paused;
+                    desiredSpeed = speed;
+                } finally {
+                    this.lock.unlock();
+                }
+
+                if (target != null) {
+                    reconcileTargetState(
+                            target,
+                            desiredSuspended,
+                            desiredLowOverhead,
+                            desiredRuntimeVideoEnabled,
+                            desiredRuntimeAudioEnabled,
+                            desiredPaused,
+                            desiredSpeed);
+                }
+
+                this.lock.lock();
+                try {
+                    boolean changed = target != mediaPlay
+                            || desiredSuspended != decoderSuspended
+                            || desiredLowOverhead != lowOverhead
+                            || desiredRuntimeVideoEnabled != runtimeVideoEnabled
+                            || desiredRuntimeAudioEnabled != runtimeAudioEnabled
+                            || desiredPaused != paused
+                            || Double.compare(desiredSpeed, speed) != 0;
+                    if (!changed) {
+                        transitionScheduled.set(false);
+                        if (target == mediaPlay
+                                && desiredSuspended == decoderSuspended
+                                && desiredLowOverhead == lowOverhead
+                                && desiredRuntimeVideoEnabled == runtimeVideoEnabled
+                                && desiredRuntimeAudioEnabled == runtimeAudioEnabled
+                                && desiredPaused == paused
+                                && Double.compare(desiredSpeed, speed) == 0) {
+                            return;
+                        }
+                        if (!transitionScheduled.compareAndSet(false, true)) {
+                            return;
+                        }
+                    }
+                } finally {
+                    this.lock.unlock();
+                }
+            }
+        } finally {
+            transitionScheduled.set(false);
+        }
+    }
+
+    private void reconcileTargetState(MediaPlayImpl target) {
+        reconcileTargetState(target, decoderSuspended, lowOverhead, runtimeVideoEnabled, runtimeAudioEnabled, paused, speed);
+    }
+
+    private void reconcileTargetState(
+            MediaPlayImpl target,
+            boolean desiredSuspended,
+            boolean desiredLowOverhead,
+            boolean desiredRuntimeVideoEnabled,
+            boolean desiredRuntimeAudioEnabled,
+            boolean desiredPaused,
+            double desiredSpeed
+    ) {
+        if (desiredSuspended) {
+            if (!target.isDecoderSuspended()) {
+                target.suspendDecoder();
+            }
+            return;
+        }
+        if (target.isDecoderSuspended()) {
+            target.resumeDecoder();
+        }
+        target.setLowOverhead(desiredLowOverhead);
+        target.setRuntimeVideoEnabled(desiredRuntimeVideoEnabled);
+        target.setRuntimeAudioEnabled(desiredRuntimeAudioEnabled);
+        target.setSpeed(desiredSpeed);
+        if (desiredPaused) {
+            target.pause();
+        } else {
+            target.play();
+        }
     }
 
 }

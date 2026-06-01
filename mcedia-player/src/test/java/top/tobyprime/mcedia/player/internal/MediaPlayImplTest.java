@@ -15,6 +15,7 @@ import java.lang.reflect.Field;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MediaPlayImplTest {
     @Test
@@ -38,6 +39,17 @@ class MediaPlayImplTest {
         audioProcessor.playtime = 950_000L;
         audioProcessor.ended = true;
 
+        assertFalse(player.isEnded());
+    }
+
+    @Test
+    void suspendMarksPlayAsNotEnded() {
+        var player = new MediaPlayImpl(new TestMedia(), new AudioProcessor(), new VideoProcessor());
+        player.decoder = new StubDecoder();
+
+        player.suspendDecoder();
+
+        assertTrue(player.isDecoderSuspended());
         assertFalse(player.isEnded());
     }
 

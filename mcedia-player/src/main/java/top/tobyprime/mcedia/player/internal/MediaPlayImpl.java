@@ -10,6 +10,7 @@ import top.tobyprime.mcedia.api.player.MediaPlay;
 import top.tobyprime.mcedia.player.internal.processors.AudioProcessor;
 import top.tobyprime.mcedia.player.internal.processors.VideoProcessor;
 
+import java.util.Objects;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class MediaPlayImpl implements MediaPlay {
@@ -25,6 +26,10 @@ public class MediaPlayImpl implements MediaPlay {
     private boolean paused = false;
     private boolean runtimeVideoEnabled = true;
     private boolean runtimeAudioEnabled = true;
+    private boolean decoderSuspended = false;
+    private boolean liveLike = false;
+    private long suspendedTimeUs = 0;
+    private @Nullable DecoderConfiguration decoderConfiguration;
 
     public MediaPlayImpl(@NotNull Media media, AudioProcessor audioProcessor, VideoProcessor videoProcessor) {
         this.media = media;
@@ -36,26 +41,56 @@ public class MediaPlayImpl implements MediaPlay {
      * 打开视频流
      */
     public void open(DecoderConfiguration decoderConfiguration) {
+        reopenDecoder(Objects.requireNonNull(decoderConfiguration, "decoderConfiguration"), true);
+    }
+
+    private void reopenDecoder(DecoderConfiguration decoderConfiguration, boolean resetClock) {
+        Decoder previousDecoder;
         this.lock.lock();
         try {
-            if (decoder != null) {
-                decoder.close();
-            }
-            var decoder = DecoderProviders.find(media.getPlayInfo(), decoderConfiguration)
-                    .create(media.getPlayInfo(), decoderConfiguration);
-            decoder.open();
+            this.decoderConfiguration = Objects.requireNonNull(decoderConfiguration, "decoderConfiguration");
+            previousDecoder = this.decoder;
+            this.decoder = null;
+        } finally {
+            this.lock.unlock();
+        }
 
-            this.decoder = decoder;
-            this.duration = decoder.getDuration();
-            this.audioProcessor.bindStream(decoder.getAudioStream());
-            this.videoProcessor.bindStream(decoder.getVideoStream());
-            this.playClock.reset();
+        if (previousDecoder != null) {
+            previousDecoder.close();
+        }
+
+        long resumeTimeUs = this.suspendedTimeUs;
+        boolean shouldResumePlaying = !this.paused;
+        var newDecoder = DecoderProviders.find(media.getPlayInfo(), decoderConfiguration)
+                .create(media.getPlayInfo(), decoderConfiguration);
+        newDecoder.open();
+
+        this.lock.lock();
+        try {
+            this.decoder = newDecoder;
+            this.duration = newDecoder.getDuration();
+            this.liveLike = this.duration < 0;
+            this.audioProcessor.bindStream(newDecoder.getAudioStream());
+            this.videoProcessor.bindStream(newDecoder.getVideoStream());
+            if (resetClock) {
+                this.playClock.reset();
+                resumeTimeUs = 0;
+            }
             this.audioProcessor.setSpeed(speed);
             this.playClock.setSpeed(speed);
-            this.decoder.setLowOverhead(lowoverhead);
-            this.decoder.setRuntimeVideoEnabled(runtimeVideoEnabled);
-            this.decoder.setRuntimeAudioEnabled(runtimeAudioEnabled);
+            newDecoder.setLowOverhead(lowoverhead);
+            newDecoder.setRuntimeVideoEnabled(runtimeVideoEnabled);
+            newDecoder.setRuntimeAudioEnabled(runtimeAudioEnabled);
+            this.decoderSuspended = false;
             pause();
+            if (!resetClock && !liveLike && resumeTimeUs > 0) {
+                newDecoder.seek(resumeTimeUs);
+                this.audioProcessor.seek(resumeTimeUs);
+                this.playClock.seek(resumeTimeUs);
+            }
+            if (shouldResumePlaying) {
+                play();
+            }
         } finally {
             this.lock.unlock();
         }
@@ -100,6 +135,9 @@ public class MediaPlayImpl implements MediaPlay {
         try {
             preDecoder = decoder;
             decoder = null;
+            decoderSuspended = false;
+            liveLike = false;
+            suspendedTimeUs = 0;
             duration = 0;
             audioProcessor.pause();
             playClock.pause();
@@ -113,6 +151,7 @@ public class MediaPlayImpl implements MediaPlay {
 
     @Override
     public void close() {
+        decoderConfiguration = null;
         audioProcessor.bindStream(null);
         videoProcessor.bindStream(null);
         stop();
@@ -125,6 +164,7 @@ public class MediaPlayImpl implements MediaPlay {
     public void seek(long time) {
         this.lock.lock();
         try {
+            this.suspendedTimeUs = time;
             if (this.decoder != null) {
                 this.decoder.seek(time);
             }
@@ -182,7 +222,7 @@ public class MediaPlayImpl implements MediaPlay {
     }
 
     public boolean isEnded() {
-        if (decoder == null) return true;
+        if (decoder == null) return decoderSuspended ? false : true;
         return this.decoder.isEnded() && audioProcessor.isEnded() && getTime() >= getDuration();
     }
 
@@ -220,6 +260,48 @@ public class MediaPlayImpl implements MediaPlay {
         } finally {
             this.lock.unlock();
         }
+    }
+
+    public void suspendDecoder() {
+        Decoder preDecoder;
+        this.lock.lock();
+        try {
+            if (this.decoder == null || this.decoderSuspended) {
+                return;
+            }
+            this.suspendedTimeUs = getEstimatedTime();
+            preDecoder = this.decoder;
+            this.decoder = null;
+            this.decoderSuspended = true;
+            this.audioProcessor.bindStream(null);
+            this.videoProcessor.bindStream(null);
+            this.audioProcessor.pause();
+            this.playClock.pause();
+        } finally {
+            this.lock.unlock();
+        }
+        preDecoder.close();
+    }
+
+    public void resumeDecoder() {
+        DecoderConfiguration config;
+        this.lock.lock();
+        try {
+            if (!decoderSuspended || this.decoder != null) {
+                return;
+            }
+            config = this.decoderConfiguration;
+        } finally {
+            this.lock.unlock();
+        }
+        if (config == null) {
+            return;
+        }
+        reopenDecoder(config, false);
+    }
+
+    public boolean isDecoderSuspended() {
+        return decoderSuspended;
     }
 
 }

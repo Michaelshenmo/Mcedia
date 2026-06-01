@@ -27,5 +27,7 @@ public interface DecoderMetricsTracker {
 
     void onVideoFrameUploaded();
 
+    void onDecoderStateChanged(String state);
+
     DecoderMetricsSnapshot snapshot();
 }

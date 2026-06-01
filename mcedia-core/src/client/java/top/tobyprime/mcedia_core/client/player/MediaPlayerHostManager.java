@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.api.config.DecoderConfiguration;
 
+import top.tobyprime.mcedia.api.decoder.metrics.DecoderMetrics;
 import top.tobyprime.mcedia.player.config.Configs;
 import top.tobyprime.mcedia_core.client.renderer.MediaTextureImpl;
 import top.tobyprime.mcedia_core.client.renderer.McediaRenderer;
@@ -35,7 +36,7 @@ public final class MediaPlayerHostManager {
     private final Map<PlayerHost, Integer> hostIds = new LinkedHashMap<>();
     private int nextHostId = 1;
     private static final int HYSTERESIS_TICKS = 60; // 1s 滞回，防止状态频繁切换
-    private final Map<PlayerHost, Boolean> lowOverheadStates = new HashMap<>();
+    private final Map<PlayerHost, DecoderResidencyState> residencyStates = new HashMap<>();
     private final Map<PlayerHost, Integer> lastTransitionTicks = new HashMap<>();
     private int currentTick; // 全局帧计数器
 
@@ -152,7 +153,7 @@ public final class MediaPlayerHostManager {
             host.cleanupPeripherals();
             if (host.isDestroyRequested() || host.isDestroyed()) {
                 requestDestroy(host);
-                lowOverheadStates.remove(host);
+                residencyStates.remove(host);
                 lastTransitionTicks.remove(host);
                 continue;
             }
@@ -167,15 +168,25 @@ public final class MediaPlayerHostManager {
         scored.sort(Comparator.comparingDouble(HostScore::score).reversed());
 
         int limit = Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT;
+        int activeCount = 0;
+        int throttledCount = 0;
+        int suspendedCount = 0;
         for (int i = 0; i < scored.size(); i++) {
             var host = scored.get(i).host;
-            boolean throttled = limit >= 0 && i >= limit;
+            boolean inBudget = limit < 0 || i < limit;
             boolean visible = scored.get(i).score > 0;
+            var targetState = decideResidencyState(host, inBudget, visible);
 
-            applyLowOverheadWithHysteresis(host, throttled);
-            applyTextureUploadState(host, visible, throttled);
+            switch (targetState) {
+                case ACTIVE -> activeCount++;
+                case THROTTLED -> throttledCount++;
+                case SUSPENDED -> suspendedCount++;
+            }
+            applyResidencyState(host, targetState, visible);
             host.tickVideo();
         }
+        DecoderMetrics.tracker().onDecoderStateChanged(
+                "active=" + activeCount + ",throttled=" + throttledCount + ",suspended=" + suspendedCount);
 
         drainPendingDestroyHosts();
         profiler.pop();
@@ -197,6 +208,53 @@ public final class MediaPlayerHostManager {
 
     private record HostScore(PlayerHost host, double score) {}
 
+    private enum DecoderResidencyState {
+        ACTIVE,
+        THROTTLED,
+        SUSPENDED
+    }
+
+    private DecoderResidencyState decideResidencyState(PlayerHost host, boolean inBudget, boolean visible) {
+        if (inBudget) {
+            return DecoderResidencyState.ACTIVE;
+        }
+
+        var prev = residencyStates.get(host);
+        if (prev == DecoderResidencyState.SUSPENDED) {
+            return DecoderResidencyState.SUSPENDED;
+        }
+
+        var lastTick = lastTransitionTicks.getOrDefault(host, 0);
+        if (currentTick - lastTick >= HYSTERESIS_TICKS) {
+            return DecoderResidencyState.SUSPENDED;
+        }
+        return DecoderResidencyState.THROTTLED;
+    }
+
+    private void applyResidencyState(PlayerHost host, DecoderResidencyState state, boolean visible) {
+        var prev = residencyStates.get(host);
+        if (prev != state) {
+            lastTransitionTicks.put(host, currentTick);
+            residencyStates.put(host, state);
+            switch (state) {
+                case ACTIVE -> {
+                    host.resumeDecoderIfNeeded();
+                    host.getPlayer().setLowOverhead(false);
+                }
+                case THROTTLED -> {
+                    host.resumeDecoderIfNeeded();
+                    host.getPlayer().setLowOverhead(true);
+                }
+                case SUSPENDED -> {
+                    host.getPlayer().setLowOverhead(true);
+                    host.suspendDecoder();
+                }
+            }
+        }
+
+        applyTextureUploadState(host, state != DecoderResidencyState.SUSPENDED && visible, state == DecoderResidencyState.THROTTLED && visible);
+    }
+
     /** 视锥外时直接跳过上传；可见时按 throttled 状态做 15fps 节流。 */
     private static void applyTextureUploadState(PlayerHost host, boolean visible, boolean throttled) {
         try {
@@ -206,19 +264,6 @@ public final class MediaPlayerHostManager {
             }
         } catch (Exception ignored) {
         }
-    }
-
-    /** 带滞回的 lowOverhead 设置：1s 内不重复切换。 */
-    private void applyLowOverheadWithHysteresis(PlayerHost host, boolean lowOverhead) {
-        var prev = lowOverheadStates.get(host);
-        if (prev != null && prev == lowOverhead) return;
-
-        var lastTick = lastTransitionTicks.getOrDefault(host, 0);
-        if (currentTick - lastTick < HYSTERESIS_TICKS) return;
-
-        lastTransitionTicks.put(host, currentTick);
-        lowOverheadStates.put(host, lowOverhead);
-        host.getPlayer().setLowOverhead(lowOverhead);
     }
 
     public void tickAudio() {
@@ -276,7 +321,7 @@ public final class MediaPlayerHostManager {
             }
             pendingDestroyHosts.remove(host);
         }
-        lowOverheadStates.remove(host);
+        residencyStates.remove(host);
         lastTransitionTicks.remove(host);
         host.destroyNow();
         LOGGER.info("Destroyed media player host hostId={}", hostId);

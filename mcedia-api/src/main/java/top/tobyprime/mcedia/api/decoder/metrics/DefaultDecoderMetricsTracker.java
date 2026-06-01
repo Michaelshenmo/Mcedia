@@ -19,6 +19,10 @@ public class DefaultDecoderMetricsTracker implements DecoderMetricsTracker {
     private final LongAdder totalDecodeLatencyNanos = new LongAdder();
     private final LongAdder totalVideoDecodeLatencyNanos = new LongAdder();
     private final LongAdder totalAudioDecodeLatencyNanos = new LongAdder();
+    private final AtomicLong activeDecoderCount = new AtomicLong();
+    private final AtomicLong throttledDecoderCount = new AtomicLong();
+    private final AtomicLong suspendedDecoderCount = new AtomicLong();
+    private final LongAdder decoderStateTransitions = new LongAdder();
     private final Object videoUploadWindowLock = new Object();
     private final ArrayDeque<Long> videoUploadTimestampsMillis = new ArrayDeque<>();
 
@@ -112,6 +116,36 @@ public class DefaultDecoderMetricsTracker implements DecoderMetricsTracker {
     }
 
     @Override
+    public void onDecoderStateChanged(String state) {
+        activeDecoderCount.set(0);
+        throttledDecoderCount.set(0);
+        suspendedDecoderCount.set(0);
+        if (state == null) {
+            return;
+        }
+        for (String part : state.split(",")) {
+            var kv = part.split("=");
+            if (kv.length != 2) {
+                continue;
+            }
+            long value;
+            try {
+                value = Long.parseLong(kv[1]);
+            } catch (NumberFormatException ignored) {
+                continue;
+            }
+            switch (kv[0]) {
+                case "active" -> activeDecoderCount.set(Math.max(0L, value));
+                case "throttled" -> throttledDecoderCount.set(Math.max(0L, value));
+                case "suspended" -> suspendedDecoderCount.set(Math.max(0L, value));
+                default -> {
+                }
+            }
+        }
+        decoderStateTransitions.increment();
+    }
+
+    @Override
     public DecoderMetricsSnapshot snapshot() {
         long decodeCount = decodeSampleCount.sum();
         long videoCount = videoDecodeSampleCount.sum();
@@ -129,6 +163,10 @@ public class DefaultDecoderMetricsTracker implements DecoderMetricsTracker {
         long videoBytesUnreleased = unreleasedVideoFrameBytes.sum();
         long audioCountUnreleased = unreleasedAudioFrameCount.sum();
         long audioBytesUnreleased = unreleasedAudioFrameBytes.sum();
+        long activeCount = activeDecoderCount.get();
+        long throttledCount = throttledDecoderCount.get();
+        long suspendedCount = suspendedDecoderCount.get();
+        long stateCount = activeCount + throttledCount + suspendedCount;
         long videoUploadsLastSecond;
         synchronized (videoUploadWindowLock) {
             trimVideoUploadWindow(System.currentTimeMillis());
@@ -141,6 +179,11 @@ public class DefaultDecoderMetricsTracker implements DecoderMetricsTracker {
                 audioCountUnreleased,
                 audioBytesUnreleased,
                 unreleasedDecoderStreamCount.get(),
+                activeCount,
+                throttledCount,
+                suspendedCount,
+                stateCount,
+                decoderStateTransitions.sum(),
                 decodeCount,
                 videoCount,
                 audioCount,
