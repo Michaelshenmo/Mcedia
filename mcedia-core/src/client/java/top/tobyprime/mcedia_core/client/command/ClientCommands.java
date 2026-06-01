@@ -61,6 +61,12 @@ public final class ClientCommands {
                                     .executes(context -> setResolution(
                                             context.getSource(),
                                             StringArgumentType.getString(context, "level")))))
+                    .then(ClientCommandManager.literal("maxplayers")
+                            .executes(context -> showMaxPlayerCount(context.getSource()))
+                            .then(ClientCommandManager.argument("count", IntegerArgumentType.integer(0))
+                                    .executes(context -> setMaxPlayerCount(
+                                            context.getSource(),
+                                            IntegerArgumentType.getInteger(context, "count")))))
                     .then(ClientCommandManager.literal("lowoverheadlimit")
                             .executes(context -> showLowOverheadLimit(context.getSource()))
                             .then(ClientCommandManager.argument("count", IntegerArgumentType.integer(0))
@@ -290,8 +296,20 @@ public final class ClientCommands {
     private static int showConfig(FabricClientCommandSource source) {
         source.sendFeedback(Component.literal("Max video resolution: " + resolutionLevelName(Configs.MAX_RESOLUTION_HEIGHT)));
         source.sendFeedback(Component.literal("Global volume factor: " + String.format(Locale.ROOT, "%.2f", Configs.VOLUME_FACTOR)));
+        source.sendFeedback(Component.literal("Max player count: " + Configs.MAX_PLAYER_COUNT));
         source.sendFeedback(Component.literal("Max non-low-overhead player count: " + Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT));
         source.sendFeedback(Component.literal("Low overhead upload FPS: " + Configs.LOW_OVERHEAD_UPLOAD_FPS));
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private static int showMaxPlayerCount(FabricClientCommandSource source) {
+        source.sendFeedback(Component.literal("Max player count: " + Configs.MAX_PLAYER_COUNT));
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private static int setMaxPlayerCount(FabricClientCommandSource source, int count) {
+        Configs.MAX_PLAYER_COUNT = Math.max(0, count);
+        source.sendFeedback(Component.literal("Set max player count to " + Configs.MAX_PLAYER_COUNT));
         return Command.SINGLE_SUCCESS;
     }
 
