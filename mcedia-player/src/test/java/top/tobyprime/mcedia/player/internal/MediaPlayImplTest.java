@@ -12,9 +12,12 @@ import top.tobyprime.mcedia.player.internal.processors.AudioProcessor;
 import top.tobyprime.mcedia.player.internal.processors.VideoProcessor;
 
 import java.lang.reflect.Field;
+import java.util.ArrayDeque;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MediaPlayImplTest {
     @Test
@@ -41,6 +44,58 @@ class MediaPlayImplTest {
         assertFalse(player.isEnded());
     }
 
+    @Test
+    void suspendMarksPlayAsNotEnded() {
+        var player = new MediaPlayImpl(new TestMedia(), new AudioProcessor(), new VideoProcessor());
+        player.decoder = new StubDecoder();
+
+        player.suspendDecoder();
+
+        assertTrue(player.isDecoderSuspended());
+        assertFalse(player.isEnded());
+    }
+
+    @Test
+    void openRetriesUntilThirdAttemptSucceeds() {
+        var player = new RetryableMediaPlayImpl(
+                new TestMedia(),
+                new AudioProcessor(),
+                new VideoProcessor(),
+                new FlakyDecoder(),
+                new FlakyDecoder(),
+                new StubDecoder()
+        );
+
+        player.open(new top.tobyprime.mcedia.api.config.DecoderConfiguration.Builder().build());
+
+        assertEquals(3, player.createCount);
+        assertFalse(player.isDecoderSuspended());
+    }
+
+    @Test
+    void openThrowsLastFailureAfterThreeAttempts() {
+        var first = new FlakyDecoder();
+        var second = new FlakyDecoder();
+        var third = new FlakyDecoder();
+        var player = new RetryableMediaPlayImpl(
+                new TestMedia(),
+                new AudioProcessor(),
+                new VideoProcessor(),
+                first,
+                second,
+                third
+        );
+
+        RuntimeException error = assertThrows(RuntimeException.class,
+                () -> player.open(new top.tobyprime.mcedia.api.config.DecoderConfiguration.Builder().build()));
+
+        assertEquals("open failed", error.getMessage());
+        assertEquals(3, player.createCount);
+        assertTrue(first.closed);
+        assertTrue(second.closed);
+        assertTrue(third.closed);
+    }
+
     private static void setLong(Object target, String fieldName, long value) throws Exception {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);
@@ -62,9 +117,32 @@ class MediaPlayImplTest {
         }
     }
 
-    private static final class StubDecoder implements Decoder {
+    private static final class RetryableMediaPlayImpl extends MediaPlayImpl {
+        private final ArrayDeque<Decoder> decoders = new ArrayDeque<>();
+        private int createCount;
+
+        private RetryableMediaPlayImpl(Media media, AudioProcessor audioProcessor, VideoProcessor videoProcessor, Decoder... decoders) {
+            super(media, audioProcessor, videoProcessor);
+            for (var decoder : decoders) {
+                this.decoders.addLast(decoder);
+            }
+        }
+
+        @Override
+        protected Decoder createDecoder(top.tobyprime.mcedia.api.config.DecoderConfiguration decoderConfiguration) {
+            createCount++;
+            Decoder decoder = decoders.pollFirst();
+            if (decoder == null) {
+                throw new IllegalStateException("missing decoder for test");
+            }
+            return decoder;
+        }
+    }
+
+    private static class StubDecoder implements Decoder {
         private final FrameStream<VideoFrame> videoStream = new FrameStream<>(1);
         private final FrameStream<AudioFrame> audioStream = new FrameStream<>(1);
+        boolean closed;
 
         @Override
         public void open() {
@@ -72,6 +150,7 @@ class MediaPlayImplTest {
 
         @Override
         public void close() {
+            closed = true;
         }
 
         @Override
@@ -123,6 +202,13 @@ class MediaPlayImplTest {
         @Override
         public boolean isLowOverhead() {
             return false;
+        }
+    }
+
+    private static final class FlakyDecoder extends StubDecoder {
+        @Override
+        public void open() {
+            throw new RuntimeException("open failed");
         }
     }
 

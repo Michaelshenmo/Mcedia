@@ -8,7 +8,8 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.api.config.DecoderConfiguration;
-
+import top.tobyprime.mcedia.api.decoder.metrics.DecoderMetrics;
+import top.tobyprime.mcedia.api.player.PlaybackState;
 import top.tobyprime.mcedia.player.config.Configs;
 import top.tobyprime.mcedia_core.client.renderer.MediaTextureImpl;
 import top.tobyprime.mcedia_core.client.renderer.McediaRenderer;
@@ -35,7 +36,7 @@ public final class MediaPlayerHostManager {
     private final Map<PlayerHost, Integer> hostIds = new LinkedHashMap<>();
     private int nextHostId = 1;
     private static final int HYSTERESIS_TICKS = 60; // 1s 滞回，防止状态频繁切换
-    private final Map<PlayerHost, Boolean> lowOverheadStates = new HashMap<>();
+    private final Map<PlayerHost, DecoderResidencyState> residencyStates = new HashMap<>();
     private final Map<PlayerHost, Integer> lastTransitionTicks = new HashMap<>();
     private int currentTick; // 全局帧计数器
 
@@ -146,56 +147,142 @@ public final class MediaPlayerHostManager {
         McediaRenderer.get().cleanup();
         var snapshot = snapshotHosts();
 
-        var scored = new ArrayList<HostScore>();
+        var candidates = new ArrayList<HostCandidate>();
 
         for (var host : snapshot) {
             host.cleanupPeripherals();
             if (host.isDestroyRequested() || host.isDestroyed()) {
                 requestDestroy(host);
-                lowOverheadStates.remove(host);
+                residencyStates.remove(host);
                 lastTransitionTicks.remove(host);
                 continue;
             }
             host.syncRuntimeVideoDecoderState();
             if (!host.isRuntimeVideoEnabled()) continue;
 
-            double score = importanceScore(host, frustum);
-            scored.add(new HostScore(host, score));
+            candidates.add(buildCandidate(host, frustum));
         }
 
-        // 按重要度降序排列
-        scored.sort(Comparator.comparingDouble(HostScore::score).reversed());
+        var activeCandidates = candidates.stream()
+                .filter(HostCandidate::activeEligible)
+                .sorted(Comparator.comparingDouble(HostCandidate::distancePriority))
+                .toList();
+        var activeHosts = pickHosts(activeCandidates, Configs.ACTIVE_DECODER_LIMIT);
 
-        int limit = Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT;
-        for (int i = 0; i < scored.size(); i++) {
-            var host = scored.get(i).host;
-            boolean throttled = limit >= 0 && i >= limit;
-            boolean visible = scored.get(i).score > 0;
+        var throttledCandidates = candidates.stream()
+                .filter(candidate -> !activeHosts.contains(candidate.host()))
+                .sorted(Comparator.comparingDouble(HostCandidate::distancePriority))
+                .toList();
+        var throttledHosts = pickHosts(throttledCandidates, Configs.THROTTLED_DECODER_LIMIT);
 
-            applyLowOverheadWithHysteresis(host, throttled);
-            applyTextureUploadState(host, visible, throttled);
+        int activeCount = 0;
+        int throttledCount = 0;
+        int suspendedCount = 0;
+        for (var candidate : candidates) {
+            var host = candidate.host();
+            boolean active = activeHosts.contains(host);
+            boolean throttled = !active && throttledHosts.contains(host);
+            var targetState = decideResidencyState(host, active, throttled);
+
+            switch (targetState) {
+                case ACTIVE -> activeCount++;
+                case THROTTLED -> throttledCount++;
+                case SUSPENDED -> suspendedCount++;
+            }
+            applyResidencyState(host, targetState, candidate.visible());
             host.tickVideo();
         }
+        DecoderMetrics.tracker().onDecoderStateChanged(
+                "active=" + activeCount + ",throttled=" + throttledCount + ",suspended=" + suspendedCount);
 
         drainPendingDestroyHosts();
         profiler.pop();
     }
 
-    /** 计算 host 在视锥中的可见重要度（距相机越近值越大）。 */
-    private static double importanceScore(PlayerHost host, @Nullable Frustum frustum) {
-        double best = 0;
-        for (var p : host.getPeripherals()) {
-            if (!p.isActive()) continue;
-            if (frustum != null && !p.isVisible(frustum)) continue;
-            double dSq = p.getDistance();
-            if (dSq <= 0) dSq = 0.01;
-            double s = 1.0 / dSq;
-            if (s > best) best = s;
+    private static HostCandidate buildCandidate(PlayerHost host, @Nullable Frustum frustum) {
+        double nearestDistanceSq = Double.POSITIVE_INFINITY;
+        boolean visible = false;
+        for (var peripheral : host.getPeripherals()) {
+            if (!peripheral.isActive()) {
+                continue;
+            }
+            double distanceSq = Math.max(peripheral.getDistance(), 0.01D);
+            nearestDistanceSq = Math.min(nearestDistanceSq, distanceSq);
+            if (!visible && (frustum == null || peripheral.isVisible(frustum))) {
+                visible = true;
+            }
         }
-        return best;
+        return new HostCandidate(
+                host,
+                visible,
+                nearestDistanceSq,
+                host.getPlaybackState() != PlaybackState.IDLE && visible
+        );
     }
 
-    private record HostScore(PlayerHost host, double score) {}
+    private static Set<PlayerHost> pickHosts(List<HostCandidate> candidates, int limit) {
+        if (limit == 0 || candidates.isEmpty()) {
+            return Set.of();
+        }
+        int endExclusive = limit < 0 ? candidates.size() : Math.min(limit, candidates.size());
+        var selected = new LinkedHashSet<PlayerHost>();
+        for (int i = 0; i < endExclusive; i++) {
+            selected.add(candidates.get(i).host());
+        }
+        return selected;
+    }
+
+    private record HostCandidate(PlayerHost host, boolean visible, double distancePriority, boolean activeEligible) {}
+
+    private enum DecoderResidencyState {
+        ACTIVE,
+        THROTTLED,
+        SUSPENDED
+    }
+
+    private DecoderResidencyState decideResidencyState(PlayerHost host, boolean active, boolean throttled) {
+        if (active) {
+            return DecoderResidencyState.ACTIVE;
+        }
+        if (throttled) {
+            return DecoderResidencyState.THROTTLED;
+        }
+
+        var prev = residencyStates.get(host);
+        if (prev == DecoderResidencyState.SUSPENDED) {
+            return DecoderResidencyState.SUSPENDED;
+        }
+
+        var lastTick = lastTransitionTicks.getOrDefault(host, 0);
+        if (currentTick - lastTick >= HYSTERESIS_TICKS) {
+            return DecoderResidencyState.SUSPENDED;
+        }
+        return DecoderResidencyState.THROTTLED;
+    }
+
+    private void applyResidencyState(PlayerHost host, DecoderResidencyState state, boolean visible) {
+        var prev = residencyStates.get(host);
+        if (prev != state) {
+            lastTransitionTicks.put(host, currentTick);
+            residencyStates.put(host, state);
+            switch (state) {
+                case ACTIVE -> {
+                    host.resumeDecoderIfNeeded();
+                    host.getPlayer().setLowOverhead(false);
+                }
+                case THROTTLED -> {
+                    host.resumeDecoderIfNeeded();
+                    host.getPlayer().setLowOverhead(true);
+                }
+                case SUSPENDED -> {
+                    host.getPlayer().setLowOverhead(true);
+                    host.suspendDecoder();
+                }
+            }
+        }
+
+        applyTextureUploadState(host, state != DecoderResidencyState.SUSPENDED && visible, state == DecoderResidencyState.THROTTLED && visible);
+    }
 
     /** 视锥外时直接跳过上传；可见时按 throttled 状态做 15fps 节流。 */
     private static void applyTextureUploadState(PlayerHost host, boolean visible, boolean throttled) {
@@ -206,19 +293,6 @@ public final class MediaPlayerHostManager {
             }
         } catch (Exception ignored) {
         }
-    }
-
-    /** 带滞回的 lowOverhead 设置：1s 内不重复切换。 */
-    private void applyLowOverheadWithHysteresis(PlayerHost host, boolean lowOverhead) {
-        var prev = lowOverheadStates.get(host);
-        if (prev != null && prev == lowOverhead) return;
-
-        var lastTick = lastTransitionTicks.getOrDefault(host, 0);
-        if (currentTick - lastTick < HYSTERESIS_TICKS) return;
-
-        lastTransitionTicks.put(host, currentTick);
-        lowOverheadStates.put(host, lowOverhead);
-        host.getPlayer().setLowOverhead(lowOverhead);
     }
 
     public void tickAudio() {
@@ -276,7 +350,7 @@ public final class MediaPlayerHostManager {
             }
             pendingDestroyHosts.remove(host);
         }
-        lowOverheadStates.remove(host);
+        residencyStates.remove(host);
         lastTransitionTicks.remove(host);
         host.destroyNow();
         LOGGER.info("Destroyed media player host hostId={}", hostId);

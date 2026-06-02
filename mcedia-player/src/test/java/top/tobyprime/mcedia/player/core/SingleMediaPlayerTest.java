@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import top.tobyprime.mcedia.api.media.Media;
 import top.tobyprime.mcedia.api.media.MediaInfo;
 import top.tobyprime.mcedia.api.media.MediaPlayInfo;
+import top.tobyprime.mcedia.api.player.PlaybackState;
 import top.tobyprime.mcedia.player.internal.MediaPlayImpl;
 import top.tobyprime.mcedia.player.internal.processors.AudioProcessor;
 import top.tobyprime.mcedia.player.internal.processors.VideoProcessor;
@@ -18,6 +19,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SingleMediaPlayerTest {
@@ -115,6 +117,32 @@ class SingleMediaPlayerTest {
     }
 
     @Test
+    void closeCancelsPendingLoadBeforeMediaPlayIsInstalled() throws Exception {
+        var player = new SingleMediaPlayer();
+        var supplierEntered = new CountDownLatch(1);
+        var releaseSupplier = new CountDownLatch(1);
+
+        var future = player.playAsync(() -> {
+            supplierEntered.countDown();
+            try {
+                releaseSupplier.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return new TestMedia();
+        });
+
+        assertTrue(supplierEntered.await(1, TimeUnit.SECONDS));
+        player.close();
+        releaseSupplier.countDown();
+
+        waitUntil(future::isDone);
+        assertTrue(future.isCompletedExceptionally() || future.isCancelled());
+        assertNull(player.getMedia());
+        assertEquals(PlaybackState.IDLE, player.getPlaybackState());
+    }
+
+    @Test
     void runtimeStateIsPropagatedToCurrentMediaPlay() throws Exception {
         var player = new SingleMediaPlayer();
         var mediaPlay = new RecordingMediaPlay();
@@ -123,14 +151,59 @@ class SingleMediaPlayerTest {
         player.setRuntimeVideoEnabled(false);
         player.setRuntimeAudioEnabled(false);
 
+        waitUntil(() -> !mediaPlay.runtimeVideoEnabled && !mediaPlay.runtimeAudioEnabled);
         assertFalse(mediaPlay.runtimeVideoEnabled);
         assertFalse(mediaPlay.runtimeAudioEnabled);
+    }
+
+    @Test
+    void suspendAndResumeDecoderArePropagatedToCurrentMediaPlay() throws Exception {
+        var player = new SingleMediaPlayer();
+        var mediaPlay = new RecordingMediaPlay();
+        setField(player, "mediaPlay", mediaPlay);
+
+        player.suspendDecoder();
+        waitUntil(() -> mediaPlay.suspendCount.get() == 1);
+        assertTrue(player.isDecoderSuspended());
+
+        player.resumeDecoder();
+        waitUntil(() -> mediaPlay.resumeCount.get() == 1);
+        assertFalse(player.isDecoderSuspended());
+    }
+
+    @Test
+    void repeatedSuspendAndResumeOnlyNeedSingleEffectiveTransition() throws Exception {
+        var player = new SingleMediaPlayer();
+        var mediaPlay = new RecordingMediaPlay();
+        setField(player, "mediaPlay", mediaPlay);
+
+        player.suspendDecoder();
+        player.suspendDecoder();
+        player.suspendDecoder();
+        waitUntil(() -> mediaPlay.suspendCount.get() >= 1);
+        assertEquals(1, mediaPlay.suspendCount.get());
+
+        player.resumeDecoder();
+        player.resumeDecoder();
+        waitUntil(() -> mediaPlay.resumeCount.get() >= 1);
+        assertEquals(1, mediaPlay.resumeCount.get());
     }
 
     private static void setField(Object target, String name, Object value) throws Exception {
         Field field = target.getClass().getDeclaredField(name);
         field.setAccessible(true);
         field.set(target, value);
+    }
+
+    private static void waitUntil(Check check) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+        while (System.nanoTime() < deadline) {
+            if (check.ok()) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        throw new AssertionError("condition not met before timeout");
     }
 
     @SuppressWarnings("unchecked")
@@ -140,11 +213,18 @@ class SingleMediaPlayerTest {
         ((java.util.concurrent.atomic.AtomicReference<T>) field.get(target)).set(value);
     }
 
+    private interface Check {
+        boolean ok();
+    }
+
     private static class RecordingMediaPlay extends MediaPlayImpl {
         final AtomicInteger seekCount = new AtomicInteger();
         final AtomicLong lastSeek = new AtomicLong(Long.MIN_VALUE);
+        final AtomicInteger suspendCount = new AtomicInteger();
+        final AtomicInteger resumeCount = new AtomicInteger();
         boolean runtimeVideoEnabled = true;
         boolean runtimeAudioEnabled = true;
+        boolean decoderSuspended;
 
         private RecordingMediaPlay() {
             super(new TestMedia(), new AudioProcessor(), new VideoProcessor());
@@ -164,6 +244,23 @@ class SingleMediaPlayerTest {
         @Override
         public void setRuntimeAudioEnabled(boolean enabled) {
             runtimeAudioEnabled = enabled;
+        }
+
+        @Override
+        public void suspendDecoder() {
+            suspendCount.incrementAndGet();
+            decoderSuspended = true;
+        }
+
+        @Override
+        public void resumeDecoder() {
+            resumeCount.incrementAndGet();
+            decoderSuspended = false;
+        }
+
+        @Override
+        public boolean isDecoderSuspended() {
+            return decoderSuspended;
         }
 
         long getLastSeek() {

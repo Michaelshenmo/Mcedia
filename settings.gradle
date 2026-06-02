@@ -17,7 +17,7 @@ rootProject.name = 'McediaCore'
 
 def versionedModules = [
     'mcedia-core',
-    'mcedia-platforms'
+    'mcedia-cn-platforms'
 ]
 def versions = providers.gradleProperty('supported_mc_versions')
     .orElse('1.21.11')

@@ -6,8 +6,10 @@ import java.util.Properties;
 public class Configs {
     public static boolean PHYSICS = true;
     public static boolean SHOW_LOAD_INFO = true;
-    public static int MAX_PLAYER_COUNT = 5;
-    public static int MAX_NON_LOW_OVERHEAD_PLAYER_COUNT = 1;
+    /** ACTIVE 驻留态的最大 decoder 数量 */
+    public static int ACTIVE_DECODER_LIMIT = 1;
+    /** THROTTLED 驻留态的最大 decoder 数量（独立于 ACTIVE 名额，超过后进入 SUSPENDED） */
+    public static int THROTTLED_DECODER_LIMIT = 5;
     /** low overhead 模式下的上传帧率限制 */
     public static int LOW_OVERHEAD_UPLOAD_FPS = 5;
     public static List<String> ARMOR_STAND_PLAYER_NAME_PATTERNS = List.of("mcedia", "mcdia");
@@ -40,8 +42,8 @@ public class Configs {
     public static boolean ALLOW_YHDM = false;
 
     public static void fromProperties(Properties props) {
-        Configs.MAX_PLAYER_COUNT = Integer.parseInt(props.getProperty("MAX_PLAYER_COUNT", String.valueOf(Configs.MAX_PLAYER_COUNT)));
-        Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT = Integer.parseInt(props.getProperty("MAX_NON_LOW_OVERHEAD_PLAYER_COUNT", String.valueOf(Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT)));
+        Configs.ACTIVE_DECODER_LIMIT = Integer.parseInt(props.getProperty("ACTIVE_DECODER_LIMIT", props.getProperty("MAX_NON_LOW_OVERHEAD_PLAYER_COUNT", String.valueOf(Configs.ACTIVE_DECODER_LIMIT))));
+        Configs.THROTTLED_DECODER_LIMIT = Integer.parseInt(props.getProperty("THROTTLED_DECODER_LIMIT", String.valueOf(Configs.THROTTLED_DECODER_LIMIT)));
         Configs.LOW_OVERHEAD_UPLOAD_FPS = Integer.parseInt(props.getProperty("LOW_OVERHEAD_UPLOAD_FPS", String.valueOf(Configs.LOW_OVERHEAD_UPLOAD_FPS)));
         Configs.SHOW_LOAD_INFO = Boolean.parseBoolean(props.getProperty("SHOW_LOAD_INFO", String.valueOf(Configs.SHOW_LOAD_INFO)));
         Configs.VOLUME_FACTOR = Float.parseFloat(props.getProperty("VOLUME_FACTOR", String.valueOf(Configs.VOLUME_FACTOR)));
@@ -59,8 +61,8 @@ public class Configs {
     }
 
     public static void writeToProperties(Properties props) {
-        props.setProperty("MAX_PLAYER_COUNT", String.valueOf(Configs.MAX_PLAYER_COUNT));
-        props.setProperty("MAX_NON_LOW_OVERHEAD_PLAYER_COUNT", String.valueOf(Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT));
+        props.setProperty("ACTIVE_DECODER_LIMIT", String.valueOf(Configs.ACTIVE_DECODER_LIMIT));
+        props.setProperty("THROTTLED_DECODER_LIMIT", String.valueOf(Configs.THROTTLED_DECODER_LIMIT));
         props.setProperty("LOW_OVERHEAD_UPLOAD_FPS", String.valueOf(Configs.LOW_OVERHEAD_UPLOAD_FPS));
         props.setProperty("SHOW_LOAD_INFO", String.valueOf(Configs.SHOW_LOAD_INFO));
         props.setProperty("VOLUME_FACTOR", String.valueOf(Configs.VOLUME_FACTOR));

@@ -1,8 +1,11 @@
 import org.gradle.api.GradleException
 import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.tasks.Copy
+import org.gradle.api.tasks.GradleBuild
 import org.gradle.api.tasks.Sync
 import org.gradle.api.tasks.bundling.Jar
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 plugins {
     id 'maven-publish'
@@ -28,13 +31,26 @@ def targetJavaLauncher = javaToolchains.launcherFor {
     languageVersion = JavaLanguageVersion.of(targetJavaVersion)
 }
 def artifactBaseName = "${moduleProp('archives_base_name')}-mc${mcVersion}"
-def splitClientSources = moduleName in ['mcedia-core', 'mcedia-platforms']
+def splitClientSources = moduleName in ['mcedia-core', 'mcedia-cn-platforms']
 def licenseFile = rootProject.file('LICENSE')
+def nativePlatform = project.findProperty('platformName')?.toString() ?: 'universal'
+def buildTimestamp = rootProject.ext.has('buildTimestamp')
+    ? rootProject.ext.buildTimestamp.toString()
+    : LocalDateTime.now().format(DateTimeFormatter.ofPattern('yyyyMMddHHmmss'))
+rootProject.ext.buildTimestamp = buildTimestamp
+def finalArtifactFileName = "${moduleProp('archives_base_name')}-${project.version}+${mcVersion}.${nativePlatform}+build${buildTimestamp}.jar"
+def supportedNativePlatforms = (rootProject.findProperty('supported_native_platforms') ?: nativePlatform)
+    .toString()
+    .split(',')
+    .collect { it.trim() }
+    .findAll { !it.isEmpty() }
 
 def generatedMainJavaDir = file("${buildDir}/generated/versionedSrc/${mcVersion}/main/java")
 def generatedMainResourcesDir = file("${buildDir}/generated/versionedSrc/${mcVersion}/main/resources")
 def generatedClientJavaDir = file("${buildDir}/generated/versionedSrc/${mcVersion}/client/java")
 def generatedClientResourcesDir = file("${buildDir}/generated/versionedSrc/${mcVersion}/client/resources")
+def generatedTestJavaDir = file("${buildDir}/generated/versionedSrc/${mcVersion}/test/java")
+def generatedTestResourcesDir = file("${buildDir}/generated/versionedSrc/${mcVersion}/test/resources")
 
 def syncVersionedMainSources = tasks.register('syncVersionedMainSources', Sync) {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
@@ -67,6 +83,23 @@ def syncVersionedClientSources = tasks.register('syncVersionedClientSources', Sy
         into('java')
     }
     from(new File(moduleRoot, 'src/client/resources')) {
+        into('resources')
+    }
+}
+
+def syncVersionedTestSources = tasks.register('syncVersionedTestSources', Sync) {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    into(file("${buildDir}/generated/versionedSrc/${mcVersion}/test"))
+    from(new File(project.projectDir, 'src/test/java')) {
+        into('java')
+    }
+    from(new File(project.projectDir, 'src/test/resources')) {
+        into('resources')
+    }
+    from(new File(moduleRoot, 'src/test/java')) {
+        into('java')
+    }
+    from(new File(moduleRoot, 'src/test/resources')) {
         into('resources')
     }
 }
@@ -108,6 +141,8 @@ loom {
 
 sourceSets.main.java.setSrcDirs([generatedMainJavaDir])
 sourceSets.main.resources.setSrcDirs([generatedMainResourcesDir])
+sourceSets.test.java.setSrcDirs([generatedTestJavaDir])
+sourceSets.test.resources.setSrcDirs([generatedTestResourcesDir])
 if (splitClientSources) {
     sourceSets.client.java.setSrcDirs([generatedClientJavaDir])
     sourceSets.client.resources.setSrcDirs([generatedClientResourcesDir])
@@ -119,6 +154,12 @@ tasks.named('compileJava') {
 tasks.named('processResources') {
     dependsOn(syncVersionedMainSources)
 }
+tasks.named('compileTestJava') {
+    dependsOn(syncVersionedTestSources)
+}
+tasks.named('processTestResources') {
+    dependsOn(syncVersionedTestSources)
+}
 if (splitClientSources) {
     tasks.named('compileClientJava') {
         dependsOn(syncVersionedClientSources)
@@ -129,12 +170,20 @@ if (splitClientSources) {
 }
 
 tasks.withType(Jar).configureEach {
+    if (name == 'jar') {
+        archiveFileName = finalArtifactFileName
+    }
+
     if (name == 'sourcesJar') {
         dependsOn(syncVersionedMainSources)
         if (splitClientSources) {
             dependsOn(syncVersionedClientSources)
         }
     }
+}
+
+tasks.named('remapJar') {
+    archiveFileName = finalArtifactFileName
 }
 
 tasks.withType(JavaExec).configureEach {
@@ -167,7 +216,7 @@ dependencies {
             bundledLibs project(':mcedia-player')
             bundledLibs project(':mcedia-decoder-ffmpeg')
             break
-        case 'mcedia-platforms':
+        case 'mcedia-cn-platforms':
             implementation project(':mcedia-api')
             implementation "com.google.code.gson:gson:${rootProject.property('gson_version')}"
             include "com.google.code.gson:gson:${rootProject.property('gson_version')}"
@@ -232,6 +281,35 @@ tasks.register('buildAndCollect', Copy) {
     dependsOn('build')
     from({ tasks.named('remapJar').get().archiveFile.get().asFile })
     into(rootProject.layout.buildDirectory.dir("libs/${mcVersion}"))
+}
+
+if (moduleName == 'mcedia-core') {
+    supportedNativePlatforms.each { platformName ->
+        def taskSuffix = platformName.split('-').collect { part ->
+            part.isEmpty() ? part : part.substring(0, 1).toUpperCase(Locale.ROOT) + part.substring(1)
+        }.join('')
+
+        tasks.register("buildAndCollect${taskSuffix}", GradleBuild) {
+            group = 'build'
+            description = "Builds and collects mcedia-core for ${platformName}."
+            tasks = ["${project.path}:buildAndCollect"]
+            startParameter.projectProperties = new LinkedHashMap<>(gradle.startParameter.projectProperties + [
+                platformName : platformName,
+                buildTimestamp: buildTimestamp
+            ])
+        }
+    }
+
+    tasks.register('buildAllPlatforms') {
+        group = 'build'
+        description = 'Builds and collects mcedia-core for every configured native platform.'
+        dependsOn(supportedNativePlatforms.collect { platformName ->
+            def taskSuffix = platformName.split('-').collect { part ->
+                part.isEmpty() ? part : part.substring(0, 1).toUpperCase(Locale.ROOT) + part.substring(1)
+            }.join('')
+            "buildAndCollect${taskSuffix}"
+        })
+    }
 }
 
 publishing {

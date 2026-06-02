@@ -32,6 +32,15 @@ public class DebugEntryMMDecoderMetrics implements DebugScreenEntry {
                 String.format(Locale.ROOT, "MM stream=%d sample=%d upload/s=%d", snapshot.unreleasedDecoderStreamCount(), snapshot.decodeSampleCount(), snapshot.videoFrameUploadsLastSecond()),
                 String.format(
                         Locale.ROOT,
+                        "MM state a=%d t=%d s=%d total=%d chg=%d",
+                        snapshot.activeDecoderCount(),
+                        snapshot.throttledDecoderCount(),
+                        snapshot.suspendedDecoderCount(),
+                        snapshot.totalDecoderStateCount(),
+                        snapshot.decoderStateTransitions()
+                ),
+                String.format(
+                        Locale.ROOT,
                         "MM vf=%d(%.2f MiB) af=%d(%.2f MiB)",
                         snapshot.unreleasedVideoFrameCount(),
                         toMiB(snapshot.unreleasedVideoFrameBytes()),

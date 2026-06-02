@@ -61,10 +61,16 @@ public final class ClientCommands {
                                     .executes(context -> setResolution(
                                             context.getSource(),
                                             StringArgumentType.getString(context, "level")))))
-                    .then(ClientCommandManager.literal("lowoverheadlimit")
-                            .executes(context -> showLowOverheadLimit(context.getSource()))
+                    .then(ClientCommandManager.literal("activedecoderlimit")
+                            .executes(context -> showActiveDecoderLimit(context.getSource()))
                             .then(ClientCommandManager.argument("count", IntegerArgumentType.integer(0))
-                                    .executes(context -> setLowOverheadLimit(
+                                    .executes(context -> setActiveDecoderLimit(
+                                            context.getSource(),
+                                            IntegerArgumentType.getInteger(context, "count")))))
+                    .then(ClientCommandManager.literal("throttleddecoderlimit")
+                            .executes(context -> showThrottledDecoderLimit(context.getSource()))
+                            .then(ClientCommandManager.argument("count", IntegerArgumentType.integer(0))
+                                    .executes(context -> setThrottledDecoderLimit(
                                             context.getSource(),
                                             IntegerArgumentType.getInteger(context, "count")))))
                     .then(ClientCommandManager.literal("lowoverheadfps")
@@ -290,19 +296,31 @@ public final class ClientCommands {
     private static int showConfig(FabricClientCommandSource source) {
         source.sendFeedback(Component.literal("Max video resolution: " + resolutionLevelName(Configs.MAX_RESOLUTION_HEIGHT)));
         source.sendFeedback(Component.literal("Global volume factor: " + String.format(Locale.ROOT, "%.2f", Configs.VOLUME_FACTOR)));
-        source.sendFeedback(Component.literal("Max non-low-overhead player count: " + Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT));
+        source.sendFeedback(Component.literal("Active decoder limit: " + Configs.ACTIVE_DECODER_LIMIT));
+        source.sendFeedback(Component.literal("Throttled decoder limit: " + Configs.THROTTLED_DECODER_LIMIT));
         source.sendFeedback(Component.literal("Low overhead upload FPS: " + Configs.LOW_OVERHEAD_UPLOAD_FPS));
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int showLowOverheadLimit(FabricClientCommandSource source) {
-        source.sendFeedback(Component.literal("Max non-low-overhead player count: " + Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT));
+    private static int showActiveDecoderLimit(FabricClientCommandSource source) {
+        source.sendFeedback(Component.literal("Active decoder limit: " + Configs.ACTIVE_DECODER_LIMIT));
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int setLowOverheadLimit(FabricClientCommandSource source, int count) {
-        Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT = Math.max(0, count);
-        source.sendFeedback(Component.literal("Set max non-low-overhead player count to " + Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT));
+    private static int setActiveDecoderLimit(FabricClientCommandSource source, int count) {
+        Configs.ACTIVE_DECODER_LIMIT = Math.max(0, count);
+        source.sendFeedback(Component.literal("Set active decoder limit to " + Configs.ACTIVE_DECODER_LIMIT));
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private static int showThrottledDecoderLimit(FabricClientCommandSource source) {
+        source.sendFeedback(Component.literal("Throttled decoder limit: " + Configs.THROTTLED_DECODER_LIMIT));
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private static int setThrottledDecoderLimit(FabricClientCommandSource source, int count) {
+        Configs.THROTTLED_DECODER_LIMIT = Math.max(0, count);
+        source.sendFeedback(Component.literal("Set throttled decoder limit to " + Configs.THROTTLED_DECODER_LIMIT));
         return Command.SINGLE_SUCCESS;
     }
 

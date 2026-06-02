@@ -1,5 +1,6 @@
 package top.tobyprime.mcedia_core.client.config;
 
+import net.fabricmc.loader.api.FabricLoader;
 import top.tobyprime.mcedia.api.resolver.MediaResolverSettings;
 import top.tobyprime.mcedia.player.config.Configs;
 
@@ -9,9 +10,7 @@ import java.nio.file.Path;
 import java.util.Properties;
 
 public final class PlayerConfigManager {
-    private static final Path CONFIG_PATH = Path.of(
-            System.getProperty("user.home"), ".mcedia", "mcedia_player.properties"
-    );
+    private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("mcedia_core.properties");
 
     private PlayerConfigManager() {
     }

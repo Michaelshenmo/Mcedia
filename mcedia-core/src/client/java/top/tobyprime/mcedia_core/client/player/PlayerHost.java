@@ -151,6 +151,18 @@ public class PlayerHost {
         return runtimeAudioEnabled;
     }
 
+    public void suspendDecoder() {
+        ((SingleMediaPlayer) player).suspendDecoder();
+    }
+
+    public void resumeDecoderIfNeeded() {
+        ((SingleMediaPlayer) player).resumeDecoder();
+    }
+
+    public boolean isDecoderSuspended() {
+        return ((SingleMediaPlayer) player).isDecoderSuspended();
+    }
+
     public void addPeripheral(MediaPlayerPeripheral peripheral) {
         if (destroyRequested.get() || destroyed.get()) {
             return;
