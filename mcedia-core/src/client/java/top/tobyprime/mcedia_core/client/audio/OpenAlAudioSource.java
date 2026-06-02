@@ -28,6 +28,11 @@ import java.util.function.Supplier;
 
 public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
 
+    private enum AlErrorHandling {
+        LOG_ONLY,
+        INVALIDATE_AUDIO_STATE
+    }
+
     private static final Logger LOGGER = LoggerFactory.getLogger(OpenAlAudioSource.class);
     private static final int BUFFER_COUNT = 4;
     private static final float DEFAULT_MAX_DISTANCE = 16.0F;
@@ -126,26 +131,31 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
 
     @Override
     public void pause() {
-        if (!playing) {
+        if (closed || !playing) {
             return;
         }
         playing = false;
         soundEngineAdapter.executeOnAudioThread(() -> {
-            if (sourceId == 0) {
+            if (closed || sourceId == 0) {
                 return;
             }
             AL10.alSourcePause(sourceId);
-            checkError("pause source");
+            checkError("pause source", AlErrorHandling.INVALIDATE_AUDIO_STATE);
         });
     }
 
     @Override
     public void play() {
-        if (playing) {
+        if (closed || playing) {
             return;
         }
         playing = true;
-        soundEngineAdapter.executeOnAudioThread(this::tryStartPlaybackInternal);
+        soundEngineAdapter.executeOnAudioThread(() -> {
+            if (closed) {
+                return;
+            }
+            tryStartPlaybackInternal();
+        });
     }
 
     @Override
@@ -205,7 +215,7 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
 
         closed = true;
         if (!soundEngineAdapter.executeOnAudioThread(this::closeInternal)) {
-            resetRuntimeState();
+            resetAudioStateInternal();
         }
     }
 
@@ -215,6 +225,9 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
         }
 
         cleanupProcessedBuffersInternal();
+        if (sourceId == 0) {
+            return;
+        }
 
         float masterVolume = Minecraft.getInstance().options.getSoundSourceVolume(SoundSource.MASTER);
 
@@ -224,11 +237,13 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
         AL10.alSourcef(sourceId, AL10.AL_MAX_DISTANCE, currentMaxDistance);
         AL10.alSourcef(sourceId, AL10.AL_REFERENCE_DISTANCE, 1.0F);
         AL10.alSourcef(sourceId, AL10.AL_ROLLOFF_FACTOR, 1.0F);
-        checkError("update source state");
+        if (checkError("update source state", AlErrorHandling.INVALIDATE_AUDIO_STATE)) {
+            return;
+        }
 
         if (!shouldPlay) {
             AL10.alSourcePause(sourceId);
-            checkError("pause source");
+            checkError("pause source", AlErrorHandling.INVALIDATE_AUDIO_STATE);
         } else {
             tryStartPlaybackInternal();
         }
@@ -247,6 +262,9 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
         }
 
         cleanupProcessedBuffersInternal();
+        if (sourceId == 0) {
+            return;
+        }
 
         Integer bufferId = availableBuffers.poll();
         if (bufferId == null) {
@@ -255,16 +273,15 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
 
         bufferTimestamp.put(bufferId, frameTime);
         AL10.alBufferData(bufferId, AL10.AL_FORMAT_MONO16, pcm16Mono, frameSampleRate);
-        if (checkError("buffer data")) {
+        if (checkError("buffer data", AlErrorHandling.LOG_ONLY)) {
             bufferTimestamp.remove(bufferId);
             availableBuffers.offer(bufferId);
             return;
         }
 
         AL10.alSourceQueueBuffers(sourceId, new int[]{bufferId});
-        if (checkError("queue buffer")) {
+        if (checkError("queue buffer", AlErrorHandling.INVALIDATE_AUDIO_STATE)) {
             bufferTimestamp.remove(bufferId);
-            availableBuffers.offer(bufferId);
             return;
         }
 
@@ -280,13 +297,13 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
 
         int queued = AL10.alGetSourcei(sourceId, AL10.AL_BUFFERS_QUEUED);
         int state = AL10.alGetSourcei(sourceId, AL10.AL_SOURCE_STATE);
-        if (checkError("query source state")) {
+        if (checkError("query source state", AlErrorHandling.INVALIDATE_AUDIO_STATE)) {
             return;
         }
 
         if (queued > 0 && state != AL10.AL_PLAYING) {
             AL10.alSourcePlay(sourceId);
-            checkError("play source");
+            checkError("play source", AlErrorHandling.INVALIDATE_AUDIO_STATE);
         }
     }
 
@@ -302,13 +319,13 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
     }
 
     private boolean initSourceInternal() {
-        if (sourceId != 0) {
+        if (sourceId != 0 && validateSourceInternal()) {
             return true;
         }
 
         int[] idHolder = new int[1];
         AL10.alGenSources(idHolder);
-        if (checkError("gen source")) {
+        if (checkError("gen source", AlErrorHandling.LOG_ONLY)) {
             sourceId = 0;
             return false;
         }
@@ -323,8 +340,7 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
         AL10.alSourcei(sourceId, AL10.AL_LOOPING, AL10.AL_FALSE);
         AL10.alDistanceModel(AL10.AL_INVERSE_DISTANCE_CLAMPED);
         AL10.alSource3f(sourceId, AL10.AL_POSITION, 0.0F, 0.0F, 0.0F);
-        if (checkError("init source")) {
-            deleteSourceInternal();
+        if (checkError("init source", AlErrorHandling.INVALIDATE_AUDIO_STATE)) {
             return false;
         }
 
@@ -338,7 +354,7 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
 
         int[] ids = new int[BUFFER_COUNT];
         AL10.alGenBuffers(ids);
-        if (checkError("gen buffers")) {
+        if (checkError("gen buffers", AlErrorHandling.LOG_ONLY)) {
             deleteBuffersInternal();
             return false;
         }
@@ -352,19 +368,27 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
         return true;
     }
 
+    private boolean validateSourceInternal() {
+        AL10.alGetSourcei(sourceId, AL10.AL_SOURCE_STATE);
+        if (checkError("validate source", AlErrorHandling.INVALIDATE_AUDIO_STATE)) {
+            return false;
+        }
+        return true;
+    }
+
     private void cleanupProcessedBuffersInternal() {
         if (sourceId == 0) {
             return;
         }
 
         int processed = AL10.alGetSourcei(sourceId, AL10.AL_BUFFERS_PROCESSED);
-        if (processed <= 0) {
+        if (checkError("query processed buffers", AlErrorHandling.INVALIDATE_AUDIO_STATE) || processed <= 0) {
             return;
         }
 
         int[] unqueuedIds = new int[processed];
         AL10.alSourceUnqueueBuffers(sourceId, unqueuedIds);
-        if (checkError("unqueue processed buffers")) {
+        if (checkError("unqueue processed buffers", AlErrorHandling.INVALIDATE_AUDIO_STATE)) {
             return;
         }
 
@@ -389,13 +413,20 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
         }
 
         AL10.alSourceStop(sourceId);
-        checkError("stop source");
+        if (checkError("stop source", AlErrorHandling.INVALIDATE_AUDIO_STATE)) {
+            return;
+        }
 
         int queued = AL10.alGetSourcei(sourceId, AL10.AL_BUFFERS_QUEUED);
+        if (checkError("query queued buffers", AlErrorHandling.INVALIDATE_AUDIO_STATE)) {
+            return;
+        }
         if (queued > 0) {
             int[] queuedIds = new int[queued];
             AL10.alSourceUnqueueBuffers(sourceId, queuedIds);
-            checkError("unqueue queued buffers");
+            if (checkError("unqueue queued buffers", AlErrorHandling.INVALIDATE_AUDIO_STATE)) {
+                return;
+            }
         }
 
         sampleRate = -1;
@@ -417,13 +448,12 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
         }
 
         cleanupProcessedBuffersInternal();
-
-        if (lastFrameTimestamp < 0L) {
+        if (sourceId == 0 || lastFrameTimestamp < 0L) {
             return -1L;
         }
 
         float offsetSec = AL10.alGetSourcef(sourceId, AL11.AL_SEC_OFFSET);
-        if (checkError("query sec offset")) {
+        if (checkError("query sec offset", AlErrorHandling.INVALIDATE_AUDIO_STATE)) {
             return cachedPlaytime;
         }
 
@@ -440,10 +470,13 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
         }
 
         cleanupProcessedBuffersInternal();
+        if (sourceId == 0) {
+            return false;
+        }
 
         int state = AL10.alGetSourcei(sourceId, AL10.AL_SOURCE_STATE);
         int queued = AL10.alGetSourcei(sourceId, AL10.AL_BUFFERS_QUEUED);
-        if (checkError("query ended state")) {
+        if (checkError("query ended state", AlErrorHandling.INVALIDATE_AUDIO_STATE)) {
             return false;
         }
         return state != AL10.AL_PLAYING && queued == 0;
@@ -452,12 +485,12 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
     private void closeInternal() {
         if (sourceId != 0) {
             AL10.alSourceStop(sourceId);
-            checkError("stop source on close");
+            checkError("stop source on close", AlErrorHandling.LOG_ONLY);
         }
 
         deleteSourceInternal();
         deleteBuffersInternal();
-        resetRuntimeState();
+        resetAudioStateInternal();
     }
 
     private void deleteSourceInternal() {
@@ -467,7 +500,7 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
 
         ACTIVE_SOURCES.remove(sourceId);
         AL10.alDeleteSources(new int[]{sourceId});
-        checkError("delete source");
+        checkError("delete source", AlErrorHandling.LOG_ONLY);
         sourceId = 0;
     }
 
@@ -478,8 +511,19 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
         }
 
         AL10.alDeleteBuffers(ids);
-        checkError("delete buffers");
+        checkError("delete buffers", AlErrorHandling.LOG_ONLY);
         bufferIds = null;
+    }
+
+    private void invalidateAudioState() {
+        ACTIVE_SOURCES.remove(sourceId);
+        resetAudioStateInternal();
+    }
+
+    private void resetAudioStateInternal() {
+        sourceId = 0;
+        bufferIds = null;
+        resetRuntimeState();
     }
 
     private void resetRuntimeState() {
@@ -494,13 +538,27 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
         return Math.max(0.0F, maxDistance);
     }
 
-    private boolean checkError(String status) {
+    private boolean checkError(String status, AlErrorHandling handling) {
         int err = AL10.alGetError();
-        if (err != AL10.AL_NO_ERROR) {
-            LOGGER.error("Got OpenAL error at {}: {}", status, err);
-            return true;
+        if (err == AL10.AL_NO_ERROR) {
+            return false;
         }
-        return false;
+
+        LOGGER.error(
+                "Got OpenAL error at {}: {} (sourceId={}, hasBuffers={}, closed={}, playing={}, sampleRate={})",
+                status,
+                err,
+                sourceId,
+                bufferIds != null,
+                closed,
+                playing,
+                sampleRate
+        );
+
+        if (handling == AlErrorHandling.INVALIDATE_AUDIO_STATE && err == AL10.AL_INVALID_NAME) {
+            invalidateAudioState();
+        }
+        return true;
     }
 
 

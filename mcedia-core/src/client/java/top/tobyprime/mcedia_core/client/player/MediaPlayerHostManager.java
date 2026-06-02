@@ -216,7 +216,7 @@ public final class MediaPlayerHostManager {
                 host,
                 visible,
                 nearestDistanceSq,
-                host.getPlaybackState() == PlaybackState.PLAYING && visible
+                host.getPlaybackState() != PlaybackState.IDLE && visible
         );
     }
 

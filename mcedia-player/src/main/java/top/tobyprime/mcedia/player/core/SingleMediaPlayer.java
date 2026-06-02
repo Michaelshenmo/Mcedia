@@ -175,7 +175,12 @@ public class SingleMediaPlayer implements MediaPlayer {
 
     @Override
     public void close() {
+        loadRequestId.incrementAndGet();
         seekRequestId.incrementAndGet();
+        var pendingLoad = loadFuture.getAndSet(null);
+        if (pendingLoad != null && !pendingLoad.isDone()) {
+            pendingLoad.cancel(true);
+        }
         MediaPlayImpl target;
         this.lock.lock();
         try {

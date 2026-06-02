@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import top.tobyprime.mcedia.api.media.Media;
 import top.tobyprime.mcedia.api.media.MediaInfo;
 import top.tobyprime.mcedia.api.media.MediaPlayInfo;
+import top.tobyprime.mcedia.api.player.PlaybackState;
 import top.tobyprime.mcedia.player.internal.MediaPlayImpl;
 import top.tobyprime.mcedia.player.internal.processors.AudioProcessor;
 import top.tobyprime.mcedia.player.internal.processors.VideoProcessor;
@@ -18,6 +19,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SingleMediaPlayerTest {
@@ -112,6 +114,32 @@ class SingleMediaPlayerTest {
 
         assertEquals(1, mediaPlay.seekCount.get());
         assertEquals(3_000L, mediaPlay.lastSeek.get());
+    }
+
+    @Test
+    void closeCancelsPendingLoadBeforeMediaPlayIsInstalled() throws Exception {
+        var player = new SingleMediaPlayer();
+        var supplierEntered = new CountDownLatch(1);
+        var releaseSupplier = new CountDownLatch(1);
+
+        var future = player.playAsync(() -> {
+            supplierEntered.countDown();
+            try {
+                releaseSupplier.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return new TestMedia();
+        });
+
+        assertTrue(supplierEntered.await(1, TimeUnit.SECONDS));
+        player.close();
+        releaseSupplier.countDown();
+
+        waitUntil(future::isDone);
+        assertTrue(future.isCompletedExceptionally() || future.isCancelled());
+        assertNull(player.getMedia());
+        assertEquals(PlaybackState.IDLE, player.getPlaybackState());
     }
 
     @Test
