@@ -1,8 +1,11 @@
 import org.gradle.api.GradleException
 import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.tasks.Copy
+import org.gradle.api.tasks.GradleBuild
 import org.gradle.api.tasks.Sync
 import org.gradle.api.tasks.bundling.Jar
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 plugins {
     id 'maven-publish'
@@ -30,6 +33,17 @@ def targetJavaLauncher = javaToolchains.launcherFor {
 def artifactBaseName = "${moduleProp('archives_base_name')}-mc${mcVersion}"
 def splitClientSources = moduleName in ['mcedia-core', 'mcedia-cn-platforms']
 def licenseFile = rootProject.file('LICENSE')
+def nativePlatform = project.findProperty('platformName')?.toString() ?: 'universal'
+def buildTimestamp = rootProject.ext.has('buildTimestamp')
+    ? rootProject.ext.buildTimestamp.toString()
+    : LocalDateTime.now().format(DateTimeFormatter.ofPattern('yyyyMMddHHmmss'))
+rootProject.ext.buildTimestamp = buildTimestamp
+def finalArtifactFileName = "${moduleProp('archives_base_name')}-${project.version}+${mcVersion}.${nativePlatform}+build${buildTimestamp}.jar"
+def supportedNativePlatforms = (rootProject.findProperty('supported_native_platforms') ?: nativePlatform)
+    .toString()
+    .split(',')
+    .collect { it.trim() }
+    .findAll { !it.isEmpty() }
 
 def generatedMainJavaDir = file("${buildDir}/generated/versionedSrc/${mcVersion}/main/java")
 def generatedMainResourcesDir = file("${buildDir}/generated/versionedSrc/${mcVersion}/main/resources")
@@ -129,11 +143,21 @@ if (splitClientSources) {
 }
 
 tasks.withType(Jar).configureEach {
+    if (name == 'jar') {
+        archiveFileName = finalArtifactFileName
+    }
+
     if (name == 'sourcesJar') {
         dependsOn(syncVersionedMainSources)
         if (splitClientSources) {
             dependsOn(syncVersionedClientSources)
         }
+    }
+}
+
+if (tasks.names.contains('remapJar')) {
+    tasks.named('remapJar') {
+        archiveFileName = finalArtifactFileName
     }
 }
 
@@ -228,6 +252,35 @@ tasks.register('buildAndCollect', Copy) {
     dependsOn('build')
     from({ tasks.named('jar').get().archiveFile.get().asFile })
     into(rootProject.layout.buildDirectory.dir("libs/${mcVersion}"))
+}
+
+if (moduleName == 'mcedia-core') {
+    supportedNativePlatforms.each { platformName ->
+        def taskSuffix = platformName.split('-').collect { part ->
+            part.isEmpty() ? part : part.substring(0, 1).toUpperCase(Locale.ROOT) + part.substring(1)
+        }.join('')
+
+        tasks.register("buildAndCollect${taskSuffix}", GradleBuild) {
+            group = 'build'
+            description = "Builds and collects mcedia-core for ${platformName}."
+            tasks = ["${project.path}:buildAndCollect"]
+            startParameter.projectProperties = new LinkedHashMap<>(gradle.startParameter.projectProperties + [
+                platformName : platformName,
+                buildTimestamp: buildTimestamp
+            ])
+        }
+    }
+
+    tasks.register('buildAllPlatforms') {
+        group = 'build'
+        description = 'Builds and collects mcedia-core for every configured native platform.'
+        dependsOn(supportedNativePlatforms.collect { platformName ->
+            def taskSuffix = platformName.split('-').collect { part ->
+                part.isEmpty() ? part : part.substring(0, 1).toUpperCase(Locale.ROOT) + part.substring(1)
+            }.join('')
+            "buildAndCollect${taskSuffix}"
+        })
+    }
 }
 
 publishing {
