@@ -64,6 +64,10 @@ public final class PlatformResolverBootstrap {
 
     private static PlatformMedia resolveBilibiliInternal(String target) throws Exception {
         var sourceUrl = resolveBilibiliSourceUrl(target);
+        if (isBilibiliBangumiUrl(sourceUrl)) {
+            return resolveBilibiliBangumiSourceUrl(sourceUrl);
+        }
+
         var bvid = parseBvidFromUrl(sourceUrl);
         if (bvid == null) {
             throw new IllegalArgumentException("未找到 BV 号");
@@ -127,12 +131,71 @@ public final class PlatformResolverBootstrap {
                 metadata
         );
 
-        var headers = new HashMap<String, String>();
-        headers.put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-        headers.put("Referer", "https://www.bilibili.com/");
-        headers.put("Origin", "https://www.bilibili.com");
-
+        var headers = createBilibiliMediaHeaders();
         var playInfo = extractBilibiliPlayInfo(playJson.getAsJsonObject("data"), headers, cookie);
+        if (playInfo == null) {
+            throw new IllegalStateException("未找到可播放流");
+        }
+
+        return new PlatformMedia(playInfo, info);
+    }
+
+    private static PlatformMedia resolveBilibiliBangumiSourceUrl(String sourceUrl) throws Exception {
+        var episodeId = parseBangumiEpIdFromUrl(sourceUrl);
+        var seasonId = parseBangumiSeasonIdFromUrl(sourceUrl);
+        if (episodeId == null && seasonId == null) {
+            throw new IllegalArgumentException("未找到番剧剧集 ID");
+        }
+
+        var viewApi = episodeId != null
+                ? "https://api.bilibili.com/pgc/view/web/season?ep_id=" + episodeId
+                : "https://api.bilibili.com/pgc/view/web/season?season_id=" + seasonId;
+        var viewResponse = HTTP.send(HttpRequest.newBuilder()
+                .uri(URI.create(viewApi))
+                .header("User-Agent", BILIBILI_UA)
+                .header("Referer", "https://www.bilibili.com/")
+                .build(), HttpResponse.BodyHandlers.ofString());
+        var viewJson = parseObject(viewResponse.body());
+        if (optInt(viewJson, "code", -1) != 0) {
+            throw new IllegalStateException(optString(viewJson, "message", "获取番剧信息失败"));
+        }
+
+        var result = viewJson.getAsJsonObject("result");
+        var selection = selectBangumiEpisode(result, sourceUrl, episodeId);
+        var cookie = BilibiliCookie.getCookie();
+        var playApi = "https://api.bilibili.com/pgc/player/web/playurl?ep_id=" + selection.episodeId()
+                + "&cid=" + selection.cid() + "&fnval=4048";
+        var playRequestBuilder = HttpRequest.newBuilder()
+                .uri(URI.create(playApi))
+                .header("User-Agent", BILIBILI_UA)
+                .header("Referer", "https://www.bilibili.com/");
+        if (cookie != null && !cookie.isBlank()) {
+            playRequestBuilder.header("Cookie", cookie);
+        }
+
+        var playResponse = HTTP.send(playRequestBuilder.build(), HttpResponse.BodyHandlers.ofString());
+        var playJson = parseObject(playResponse.body());
+        if (optInt(playJson, "code", -1) != 0) {
+            throw new IllegalStateException(optString(playJson, "message", "获取番剧播放地址失败"));
+        }
+
+        var metadata = new HashMap<String, String>();
+        metadata.put(BilibiliDanmakuProvider.KEY_CID, String.valueOf(selection.cid()));
+        metadata.put("bilibili.type", "bangumi");
+        metadata.put("bilibili.ep_id", selection.episodeId());
+        if (selection.seasonId() != null) {
+            metadata.put("bilibili.season_id", selection.seasonId());
+        }
+        var info = new MediaInfo(
+                selection.displayTitle(),
+                "Bilibili",
+                selection.coverUrl(),
+                "bilibili",
+                metadata
+        );
+
+        var headers = createBilibiliMediaHeaders();
+        var playInfo = extractBilibiliPlayInfo(playJson.getAsJsonObject("result"), headers, cookie);
         if (playInfo == null) {
             throw new IllegalStateException("未找到可播放流");
         }
@@ -308,6 +371,14 @@ public final class PlatformResolverBootstrap {
         return extractBilibiliPlayInfo(data, headers, cookie, MediaResolverSettings.getResolutionLimit());
     }
 
+    private static Map<String, String> createBilibiliMediaHeaders() {
+        var headers = new HashMap<String, String>();
+        headers.put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+        headers.put("Referer", "https://www.bilibili.com/");
+        headers.put("Origin", "https://www.bilibili.com");
+        return headers;
+    }
+
     private static MediaPlayInfo extractBilibiliPlayInfo(JsonObject data, Map<String, String> headers, String cookie, int maxHeight) {
         if (data.has("dash")) {
             var dash = data.getAsJsonObject("dash");
@@ -354,7 +425,7 @@ public final class PlatformResolverBootstrap {
 
     private static String resolveBilibiliSourceUrl(String target) throws Exception {
         var normalizedUrl = normalizeBilibiliUrl(target);
-        if (parseBvidFromUrl(normalizedUrl) != null) {
+        if (parseBvidFromUrl(normalizedUrl) != null || isBilibiliBangumiUrl(normalizedUrl)) {
             return normalizedUrl;
         }
 
@@ -382,6 +453,66 @@ public final class PlatformResolverBootstrap {
             return Integer.parseInt(matcher.group(1));
         }
         return 1;
+    }
+
+    private static boolean isBilibiliBangumiUrl(String url) {
+        return Pattern.compile("(?:https?://)?(?:[\\w-]+\\.)?bilibili\\.com/bangumi/play/(?:ep|ss)\\d+([?/].*)?")
+                .matcher(url)
+                .matches();
+    }
+
+    private static String parseBangumiEpIdFromUrl(String url) {
+        var matcher = Pattern.compile("/ep(\\d+)").matcher(url);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    private static String parseBangumiSeasonIdFromUrl(String url) {
+        var matcher = Pattern.compile("/ss(\\d+)").matcher(url);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    private static BangumiEpisodeSelection selectBangumiEpisode(JsonObject result, String sourceUrl, String requestedEpisodeId) {
+        var episodes = optArray(result, "episodes");
+        if (episodes == null || episodes.isEmpty()) {
+            throw new IllegalStateException("未找到番剧剧集信息");
+        }
+
+        JsonObject selectedEpisode = null;
+        if (requestedEpisodeId != null) {
+            for (int i = 0; i < episodes.size(); i++) {
+                var episode = episodes.get(i).getAsJsonObject();
+                if (requestedEpisodeId.equals(optString(episode, "id", null))) {
+                    selectedEpisode = episode;
+                    break;
+                }
+            }
+        }
+        if (selectedEpisode == null) {
+            var index = Math.max(0, Math.min(parsePNumberFromUrl(sourceUrl) - 1, episodes.size() - 1));
+            selectedEpisode = episodes.get(index).getAsJsonObject();
+        }
+
+        var episodeId = optString(selectedEpisode, "id", requestedEpisodeId);
+        if (episodeId == null || episodeId.isBlank()) {
+            throw new IllegalStateException("未找到番剧 ep_id");
+        }
+        var cidElement = selectedEpisode.get("cid");
+        if (cidElement == null || cidElement.isJsonNull()) {
+            throw new IllegalStateException("未找到番剧 cid");
+        }
+
+        var seasonTitle = optString(result, "title", "Bilibili 番剧");
+        var episodeTitle = optString(selectedEpisode, "share_copy",
+                optString(selectedEpisode, "long_title", optString(selectedEpisode, "title", episodeId)));
+        var displayTitle = seasonTitle.equals(episodeTitle) ? seasonTitle : seasonTitle + " - " + episodeTitle;
+        var coverUrl = optString(selectedEpisode, "cover", optString(result, "cover", null));
+        return new BangumiEpisodeSelection(
+                episodeId,
+                cidElement.getAsLong(),
+                optString(result, "season_id", null),
+                displayTitle,
+                coverUrl
+        );
     }
 
     private static String parseBvidFromUrl(String url) {
@@ -468,5 +599,9 @@ public final class PlatformResolverBootstrap {
 
     private static boolean isPresent(JsonElement element) {
         return element != null && !element.isJsonNull();
+    }
+
+    private record BangumiEpisodeSelection(String episodeId, long cid, String seasonId, String displayTitle,
+                                           String coverUrl) {
     }
 }

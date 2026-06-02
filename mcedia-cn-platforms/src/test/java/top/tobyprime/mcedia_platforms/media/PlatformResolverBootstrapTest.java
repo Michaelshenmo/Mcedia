@@ -8,12 +8,18 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Method;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PlatformResolverBootstrapTest {
     private static Method selectBestVideoTrack;
     private static Method extractSupportedBilibiliInput;
     private static Method extractSupportedDouyinInput;
     private static Method normalizeDouyinPlayUrl;
+    private static Method isBilibiliBangumiUrl;
+    private static Method parseBangumiEpIdFromUrl;
+    private static Method parseBangumiSeasonIdFromUrl;
+    private static Method parsePNumberFromUrl;
 
     @BeforeAll
     static void setUp() throws Exception {
@@ -29,6 +35,18 @@ class PlatformResolverBootstrapTest {
         normalizeDouyinPlayUrl = PlatformResolverBootstrap.class.getDeclaredMethod(
                 "normalizeDouyinPlayUrl", String.class);
         normalizeDouyinPlayUrl.setAccessible(true);
+        isBilibiliBangumiUrl = PlatformResolverBootstrap.class.getDeclaredMethod(
+                "isBilibiliBangumiUrl", String.class);
+        isBilibiliBangumiUrl.setAccessible(true);
+        parseBangumiEpIdFromUrl = PlatformResolverBootstrap.class.getDeclaredMethod(
+                "parseBangumiEpIdFromUrl", String.class);
+        parseBangumiEpIdFromUrl.setAccessible(true);
+        parseBangumiSeasonIdFromUrl = PlatformResolverBootstrap.class.getDeclaredMethod(
+                "parseBangumiSeasonIdFromUrl", String.class);
+        parseBangumiSeasonIdFromUrl.setAccessible(true);
+        parsePNumberFromUrl = PlatformResolverBootstrap.class.getDeclaredMethod(
+                "parsePNumberFromUrl", String.class);
+        parsePNumberFromUrl.setAccessible(true);
     }
 
     private JsonObject invokeSelect(JsonArray video, int maxHeight) throws Exception {
@@ -45,6 +63,22 @@ class PlatformResolverBootstrapTest {
 
     private String invokeNormalizeDouyinPlayUrl(String input) throws Exception {
         return (String) normalizeDouyinPlayUrl.invoke(null, input);
+    }
+
+    private boolean invokeIsBilibiliBangumiUrl(String input) throws Exception {
+        return (boolean) isBilibiliBangumiUrl.invoke(null, input);
+    }
+
+    private String invokeParseBangumiEpIdFromUrl(String input) throws Exception {
+        return (String) parseBangumiEpIdFromUrl.invoke(null, input);
+    }
+
+    private String invokeParseBangumiSeasonIdFromUrl(String input) throws Exception {
+        return (String) parseBangumiSeasonIdFromUrl.invoke(null, input);
+    }
+
+    private int invokeParsePNumberFromUrl(String input) throws Exception {
+        return (int) parsePNumberFromUrl.invoke(null, input);
     }
 
     private static JsonArray videoTracks(JsonObject... tracks) {
@@ -178,6 +212,61 @@ class PlatformResolverBootstrapTest {
         var result = invokeExtractSupportedBilibiliInput(input);
 
         assertEquals("https://b23.tv/Gt0zQrG", result);
+    }
+
+    @Test
+    void extractsBangumiUrlFromPlainUrl() throws Exception {
+        var input = "https://www.bilibili.com/bangumi/play/ep249469";
+
+        var result = invokeExtractSupportedBilibiliInput(input);
+
+        assertEquals(input, result);
+    }
+
+    @Test
+    void extractsBangumiUrlWithQueryFromPlainUrl() throws Exception {
+        var input = "https://www.bilibili.com/bangumi/play/ep249469/?share_source=copy_web";
+
+        var result = invokeExtractSupportedBilibiliInput(input);
+
+        assertEquals(input, result);
+    }
+
+    @Test
+    void extractsBangumiUrlFromShareText() throws Exception {
+        var input = "【猫和老鼠 旧版：第1话 飞翔猫 The Flying Cat】 https://www.bilibili.com/bangumi/play/ep249469";
+
+        var result = invokeExtractSupportedBilibiliInput(input);
+
+        assertEquals("https://www.bilibili.com/bangumi/play/ep249469", result);
+    }
+
+    @Test
+    void extractsBangumiB23UrlFromShareText() throws Exception {
+        var input = "【《猫和老鼠 旧版》 第1话 飞翔猫 The Flying Cat-哔哩哔哩番剧】https://b23.tv/ep249469";
+
+        var result = invokeExtractSupportedBilibiliInput(input);
+
+        assertEquals("https://b23.tv/ep249469", result);
+    }
+
+    @Test
+    void detectsBangumiPlayUrls() throws Exception {
+        assertTrue(invokeIsBilibiliBangumiUrl("https://www.bilibili.com/bangumi/play/ep249469"));
+        assertTrue(invokeIsBilibiliBangumiUrl("https://www.bilibili.com/bangumi/play/ss12345?p=2"));
+        assertFalse(invokeIsBilibiliBangumiUrl("https://www.bilibili.com/video/BV1pRVF6kEPh"));
+    }
+
+    @Test
+    void parsesBangumiIdentifiersFromUrl() throws Exception {
+        assertEquals("249469", invokeParseBangumiEpIdFromUrl("https://www.bilibili.com/bangumi/play/ep249469"));
+        assertEquals("12345", invokeParseBangumiSeasonIdFromUrl("https://www.bilibili.com/bangumi/play/ss12345?p=2"));
+    }
+
+    @Test
+    void parsesBangumiPageNumberFromSeasonUrl() throws Exception {
+        assertEquals(2, invokeParsePNumberFromUrl("https://www.bilibili.com/bangumi/play/ss12345?p=2"));
+        assertEquals(1, invokeParsePNumberFromUrl("https://www.bilibili.com/bangumi/play/ss12345"));
     }
 
     @Test

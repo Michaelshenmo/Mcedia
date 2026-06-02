@@ -8,15 +8,19 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 public class BilibiliUrlParser implements MediaUrlParser {
+    private static final String BILIBILI_DOMAIN_GROUP = "(?:[\\w-]+\\.)?(?:bilibili\\.com|b23\\.tv)";
     private static final Pattern BILIBILI_PATTERN = Pattern.compile(
-            "^(https?://)?([\\w-]+\\.)?(bilibili\\.com|b23\\.tv)/.*"
+            "^(https?://)?" + BILIBILI_DOMAIN_GROUP + "/.*"
     );
     private static final Pattern LIVE_ROOM_PATTERN = Pattern.compile(
             "^(https?://)?live\\.bilibili\\.com/\\d+([?/].*)?$"
     );
     private static final Pattern BV_PATTERN = Pattern.compile("^BV[a-zA-Z0-9]+$");
+    private static final Pattern BANGUMI_URL_PATTERN = Pattern.compile(
+            "^(https?://)?(?:[\\w-]+\\.)?bilibili\\.com/bangumi/play/(?:ep|ss)\\d+([?/].*)?$"
+    );
     private static final Pattern BILIBILI_URL_IN_TEXT_PATTERN = Pattern.compile(
-            "(https?://(?:[\\w-]+\\.)?(?:bilibili\\.com|b23\\.tv)/\\S+)"
+            "(https?://" + BILIBILI_DOMAIN_GROUP + "/\\S+)"
     );
     private static final Pattern LIVE_ROOM_URL_IN_TEXT_PATTERN = Pattern.compile(
             "(https?://live\\.bilibili\\.com/\\d+(?:[?/][^\\s]*)?)"
@@ -46,6 +50,7 @@ public class BilibiliUrlParser implements MediaUrlParser {
 
         var trimmed = input.trim();
         if (LIVE_ROOM_PATTERN.matcher(trimmed).matches()
+                || BANGUMI_URL_PATTERN.matcher(trimmed).matches()
                 || BILIBILI_PATTERN.matcher(trimmed).matches()
                 || BV_PATTERN.matcher(trimmed).matches()) {
             return trimmed;
