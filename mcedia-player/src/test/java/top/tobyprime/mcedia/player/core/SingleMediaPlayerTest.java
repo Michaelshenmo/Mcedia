@@ -256,10 +256,9 @@ class SingleMediaPlayerTest {
         // 如果 loadRequestId 未递增，外部代码再次调用 playAsync 时
         // 其 thenApply 中的 stale 检查可能使用已被 close 污染的 ID
         // （通过反射检查内部状态保持一致）
-        var loadFutureAfterClose = getAtomicReference(player, "loadFuture");
+        var loadFutureAfterClose = (CompletableFuture<?>) getAtomicReference(player, "loadFuture");
         assertTrue(loadFutureAfterClose == null || loadFutureAfterClose.isDone(),
                 "loadFuture should be null or done after close()");
-    }
     }
 
     @Test
