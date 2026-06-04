@@ -178,6 +178,8 @@ dependencies {
     implementation "net.fabricmc:fabric-loader:${loaderVersion}"
     implementation "net.fabricmc.fabric-api:fabric-api:${fabricApiVersion}"
 
+    compileOnly "org.jspecify:jspecify:1.0.0"
+
     switch (moduleName) {
         case 'mcedia-core':
             implementation project(':mcedia-player')

@@ -204,6 +204,8 @@ dependencies {
     modImplementation "net.fabricmc:fabric-loader:${loaderVersion}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${fabricApiVersion}"
 
+    compileOnly "org.jspecify:jspecify:1.0.0"
+
     switch (moduleName) {
         case 'mcedia-core':
             modImplementation "net.fabricmc.fabric-api:fabric-api:${fabricApiVersion}"

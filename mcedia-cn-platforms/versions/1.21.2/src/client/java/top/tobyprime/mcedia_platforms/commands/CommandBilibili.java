@@ -14,6 +14,8 @@ import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia_platforms.auth.BilibiliAuthManager;
 import top.tobyprime.mcedia_platforms.client.McediaPlatformsClient;
 
+import java.net.URI;
+
 public final class CommandBilibili {
     private static final Logger LOGGER = LoggerFactory.getLogger(CommandBilibili.class);
 
@@ -63,8 +65,8 @@ public final class CommandBilibili {
             LOGGER.info("loginAsync回调: 收到QR码URL, url长度={}", qrCodeUrl.length());
             send(source, "请在浏览器打开并使用手机端 bilibili 扫码:");
             Style style = Style.EMPTY
-                    .withClickEvent(new ClickEvent.OpenUrl(qrCodeUrl))
-                    .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal("在浏览器中打开二维码，并使用B站手机App扫描")));
+                    .withClickEvent(new ClickEvent.OpenUrl(URI.create(qrCodeUrl)))
+                    .withHoverEvent(new HoverEvent.ShowText(Component.literal("在浏览器中打开二维码，并使用B站手机App扫描")));
             send(source, Component.literal("§b§n[点我打开二维码]").setStyle(style));
             LOGGER.info("loginAsync回调: 二维码消息已发送给玩家");
         }).thenAccept(message -> {
