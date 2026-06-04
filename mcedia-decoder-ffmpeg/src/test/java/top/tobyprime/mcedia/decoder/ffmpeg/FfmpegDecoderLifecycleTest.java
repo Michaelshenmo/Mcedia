@@ -130,10 +130,12 @@ class FfmpegDecoderLifecycleTest {
         decoder.setLowOverhead(true);
         decoder.setLowOverhead(false);
 
-        assertEquals(1, videoFrame.closeCount.get());
-        assertEquals(1, audioFrame.closeCount.get());
-        assertEquals(0, decoder.getVideoStream().size());
-        assertEquals(0, decoder.getAudioStream().size());
+        // setLowOverhead only flips the flag; queue is cleared in seek()/close(), not here
+        assertEquals(0, videoFrame.closeCount.get());
+        assertEquals(0, audioFrame.closeCount.get());
+        assertEquals(1, decoder.getVideoStream().size());
+        assertEquals(1, decoder.getAudioStream().size());
+        assertFalse(decoder.isLowOverhead());
     }
 
     @Test
