@@ -7,3 +7,4 @@ bin
 gradle/
 .gradle-user-home/
 .claude/settings.local.json
+logs/
