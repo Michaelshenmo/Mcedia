@@ -96,11 +96,11 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build non-versioned modules
+      - name: Build non-versioned modules (with tests)
         run: |
-          ./gradlew :mcedia-api:assemble \
-                    :mcedia-player:assemble \
-                    :mcedia-decoder-ffmpeg:assemble \
+          ./gradlew :mcedia-api:build \
+                    :mcedia-player:build \
+                    :mcedia-decoder-ffmpeg:build \
                     -Psupported_mc_versions=1.21.11
 
       - name: Upload non-versioned JARs
@@ -144,8 +144,7 @@ jobs:
       - name: Build cn-platforms for ${{ matrix.mc_version }}
         run: |
           ./gradlew :mcedia-cn-platforms-${{ matrix.mc_version }}:buildAndCollect \
-                    -Psupported_mc_versions=${{ matrix.mc_version }} \
-                    -x test
+                    -Psupported_mc_versions=${{ matrix.mc_version }}
 
       - name: Upload cn-platforms JAR (${{ matrix.mc_version }})
         uses: actions/upload-artifact@v4

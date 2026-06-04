@@ -81,7 +81,8 @@ class AudioProcessorTest {
         assertEquals(0, source.uploadCount.get());
         assertEquals(0, frame.closeCount.get());
         assertEquals(1, stream.size());
-        assertEquals(1, source.pauseCount.get());
+        // pause is called once by processor.pause() and once inside tick()
+        assertEquals(2, source.pauseCount.get());
     }
 
     private static final class TrackingAudioFrame implements AudioFrame {
