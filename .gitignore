@@ -5,6 +5,8 @@ build
 bin
 .cursor/
 gradle/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
 .gradle-user-home/
 .claude/settings.local.json
 logs/
