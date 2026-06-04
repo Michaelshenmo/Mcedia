@@ -16,6 +16,7 @@ name: Build
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -30,6 +31,10 @@ on:
         default: 'all'
         required: true
         type: string
+      create_release:
+        description: 'Create a GitHub Release with the built artifacts'
+        default: false
+        type: boolean
 
 env:
   GRADLE_OPTS: '-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8'
@@ -197,3 +202,74 @@ jobs:
           name: mcedia-core-${{ matrix.mc_version }}-${{ matrix.platform }}
           path: build/libs/${{ matrix.mc_version }}/*.jar
           if-no-files-found: error
+
+  # ── Release ──────────────────────────────────────────────────────────
+  # Creates a GitHub Release with all built JARs as assets.
+  # Triggered by:
+  #   - Push of a tag matching v* (e.g. v1.0.0, v1.0.0-rc1)
+  #   - workflow_dispatch with create_release=true
+  release:
+    if: |
+      startsWith(github.ref, 'refs/tags/v')
+      || (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true')
+    needs: [non-versioned, cn-platforms, core]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Gather JAR files
+        run: |
+          mkdir -p release-assets
+          find artifacts -name '*.jar' -type f | while read jar; do
+            echo "Collected: $jar"
+            cp "$jar" release-assets/
+          done
+          echo "---"
+          ls -lh release-assets/
+
+      - name: Determine release tag and name
+        id: tag
+        run: |
+          if [ '${{ github.event_name }}' = 'workflow_dispatch' ]; then
+            # Use current version from gradle.properties
+            VERSION=$(grep '^version=' gradle.properties | cut -d= -f2)
+            echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "name=v${VERSION} (manual release)"
+          else
+            TAG=${GITHUB_REF_NAME}
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "name=${TAG}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.name }}
+          body: |
+            Automated build from commit ${{ github.sha }}.
+
+            ## Modules
+
+            - **mcedia-api** — API interfaces
+            - **mcedia-player** — Media player engine
+            - **mcedia-decoder-ffmpeg** — FFmpeg decoder via JavaCV
+            - **mcedia-core** (per-platform) — Core Fabric mod with FFmpeg native binaries
+            - **mcedia-cn-platforms** — Chinese streaming platform integration
+
+            ## Native Platforms (mcedia-core)
+
+            - windows-x86_64
+            - linux-x86_64
+            - linux-arm64
+            - macosx-x86_64
+            - macosx-arm64
+          files: release-assets/*.jar
+          fail_on_unmatched_files: true
