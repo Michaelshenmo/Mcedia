@@ -1,0 +1,199 @@
+# Build workflow for McediaCore
+#
+# Builds all modules across multiple Minecraft versions and native platforms.
+# Uses a discovery job to normalize the version/platform set from gradle.properties
+# or workflow_dispatch input, then fans out into parallel matrix jobs.
+#
+# Job structure:
+#   discover → non-versioned (api, player, decoder-ffmpeg)
+#           → cn-platforms   (matrix: mc_version)
+#           → core           (matrix: mc_version × native_platform)
+#
+# Non-versioned modules are rebuilt as project dependencies by each versioned
+# job via Gradle's project-dependency resolution — no cross-job artifact passing.
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      mc_versions:
+        description: 'Minecraft versions (comma-separated, e.g. 1.21.11 or 1.21.11,26.1)'
+        default: '1.21.11'
+        required: true
+        type: string
+      build_platforms:
+        description: 'Native platforms (comma-separated, or "all")'
+        default: 'all'
+        required: true
+        type: string
+
+env:
+  GRADLE_OPTS: '-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8'
+
+jobs:
+  # ── Discover ────────────────────────────────────────────────────────
+  # Normalizes MC versions and native platforms into JSON arrays consumed
+  # by downstream matrix jobs. For push/PR reads from gradle.properties;
+  # for workflow_dispatch uses the user-supplied input.
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      mc_versions: ${{ steps.set-mc.outputs.mc_versions }}
+      platforms:   ${{ steps.set-platforms.outputs.platforms }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve Minecraft versions
+        id: set-mc
+        run: |
+          if [ '${{ github.event_name }}' = 'workflow_dispatch' ]; then
+            INPUT='${{ github.event.inputs.mc_versions }}'
+          else
+            INPUT=$(grep '^supported_mc_versions' gradle.properties | cut -d= -f2-)
+          fi
+          JSON=$(echo "$INPUT" | tr ',' '\n' \
+            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+            | jq --raw-input --slurp --compact-output \
+              'split("\n") | map(select(length > 0))')
+          echo "mc_versions=$JSON" >> "$GITHUB_OUTPUT"
+          echo "Resolved MC versions: $JSON"
+
+      - name: Resolve native platforms
+        id: set-platforms
+        run: |
+          if [ '${{ github.event_name }}' = 'workflow_dispatch' ] \
+             && [ '${{ github.event.inputs.build_platforms }}' != 'all' ]; then
+            INPUT='${{ github.event.inputs.build_platforms }}'
+          else
+            INPUT=$(grep '^supported_native_platforms' gradle.properties | cut -d= -f2-)
+          fi
+          JSON=$(echo "$INPUT" | tr ',' '\n' \
+            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+            | jq --raw-input --slurp --compact-output \
+              'split("\n") | map(select(length > 0))')
+          echo "platforms=$JSON" >> "$GITHUB_OUTPUT"
+          echo "Resolved platforms: $JSON"
+
+  # ── Non-versioned modules ──────────────────────────────────────────
+  # Pure Java libraries with no Minecraft dependency.
+  # Runs tests — they are standard JUnit 5 and don't need GL/OpenAL.
+  non-versioned:
+    needs: discover
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build non-versioned modules (with tests)
+        run: |
+          ./gradlew :mcedia-api:build \
+                    :mcedia-player:build \
+                    :mcedia-decoder-ffmpeg:build \
+                    -Psupported_mc_versions=1.21.11
+
+      - name: Upload non-versioned JARs
+        uses: actions/upload-artifact@v4
+        with:
+          name: non-versioned-jars
+          path: |
+            mcedia-api/build/libs/*.jar
+            mcedia-player/build/libs/*.jar
+            mcedia-decoder-ffmpeg/build/libs/*.jar
+          if-no-files-found: warn
+
+  # ── Versioned: cn-platforms ─────────────────────────────────────────
+  # Chinese platform integration mod. One build per MC version.
+  # No native platform variants — does not bundle FFmpeg.
+  # Runs tests (no GL/OpenAL dependency).
+  cn-platforms:
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        mc_version: ${{ fromJSON(needs.discover.outputs.mc_versions) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve Java version for ${{ matrix.mc_version }}
+        id: jdk
+        run: |
+          PROP="mcedia-cn-platforms/versions/${{ matrix.mc_version }}/gradle.properties"
+          echo "java_version=$(grep '^java_version' "$PROP" | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK ${{ steps.jdk.outputs.java_version }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ steps.jdk.outputs.java_version }}
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build cn-platforms for ${{ matrix.mc_version }}
+        run: |
+          ./gradlew :mcedia-cn-platforms-${{ matrix.mc_version }}:buildAndCollect \
+                    -Psupported_mc_versions=${{ matrix.mc_version }}
+
+      - name: Upload cn-platforms JAR (${{ matrix.mc_version }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcedia-cn-platforms-${{ matrix.mc_version }}
+          path: build/libs/${{ matrix.mc_version }}/*.jar
+          if-no-files-found: warn
+
+  # ── Versioned: core (matrix: mc_version × native_platform) ──────────
+  # Core mod that bundles FFmpeg native binaries. Each platform variant
+  # selects a different JavaCPP Maven artifact — no cross-compilation.
+  # Tests are skipped: they depend on Minecraft's rendering/audio
+  # infrastructure (GL context, OpenAL) not available on CI runners.
+  core:
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        mc_version: ${{ fromJSON(needs.discover.outputs.mc_versions) }}
+        platform:   ${{ fromJSON(needs.discover.outputs.platforms) }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve Java version for ${{ matrix.mc_version }}
+        id: jdk
+        run: |
+          PROP="mcedia-core/versions/${{ matrix.mc_version }}/gradle.properties"
+          echo "java_version=$(grep '^java_version' "$PROP" | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK ${{ steps.jdk.outputs.java_version }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ steps.jdk.outputs.java_version }}
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build core ${{ matrix.mc_version }} for ${{ matrix.platform }}
+        run: |
+          ./gradlew :mcedia-core-${{ matrix.mc_version }}:buildAndCollect \
+                    -Psupported_mc_versions=${{ matrix.mc_version }} \
+                    -PplatformName=${{ matrix.platform }} \
+                    -x test
+
+      - name: Upload core JAR (${{ matrix.mc_version }} ${{ matrix.platform }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcedia-core-${{ matrix.mc_version }}-${{ matrix.platform }}
+          path: build/libs/${{ matrix.mc_version }}/*.jar
+          if-no-files-found: error
