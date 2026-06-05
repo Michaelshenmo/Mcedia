@@ -11,12 +11,12 @@ import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.state.CameraRenderState;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.BlockPos;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.phys.AABB;
 import top.tobyprime.mcedia_core.client.audio.OpenAlAudioSource;
 
 public final class DebugRendererAudioHitbox {
-    private static final Identifier SPEAKER_ICON = Identifier.fromNamespaceAndPath("mcedia", "textures/gui/speaker.png");
+    private static final ResourceLocation SPEAKER_ICON = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/speaker.png");
     private static final RenderType RENDER_TYPE = RenderType.entityCutoutNoCull(SPEAKER_ICON);
     private static final float ICON_SCALE = 0.4F;
     private static final double ICON_Y_OFFSET = 0.35D;

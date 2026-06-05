@@ -10,7 +10,7 @@ import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.state.CameraRenderState;
 import net.minecraft.client.renderer.texture.MissingTextureAtlasSprite;
 import net.minecraft.client.renderer.texture.OverlayTexture;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
 import org.joml.Quaternionf;
@@ -35,7 +35,7 @@ public final class PlayerScreenEntityRenderer {
         poseStack.translate(0.0F, state.height * 0.5F, 0.0F);
         poseStack.mulPose(state.worldRotation);
 
-        Identifier foregroundTextureId = resolveForegroundTextureId(state);
+        ResourceLocation foregroundTextureId = resolveForegroundTextureId(state);
         var foregroundQuad = getForegroundQuad(state);
 
         if (foregroundTextureId != null) {
@@ -73,7 +73,7 @@ public final class PlayerScreenEntityRenderer {
             SubmitNodeCollector submitNodeCollector,
             PoseStack poseStack,
             int lightCoords,
-            Identifier textureId,
+            ResourceLocation textureId,
             Quad quad,
             float z
     ) {
@@ -84,7 +84,7 @@ public final class PlayerScreenEntityRenderer {
             SubmitNodeCollector submitNodeCollector,
             PoseStack poseStack,
             int lightCoords,
-            Identifier textureId,
+            ResourceLocation textureId,
             Quad quad,
             float z,
             UvBounds uvBounds
@@ -107,7 +107,7 @@ public final class PlayerScreenEntityRenderer {
                 .setNormal(pose, 0.0F, 0.0F, 1.0F);
     }
 
-    private static @Nullable Identifier resolveForegroundTextureId(State state) {
+    private static @Nullable ResourceLocation resolveForegroundTextureId(State state) {
         if (hasPlayableVideoFrame(state)) {
             return state.textureId;
         }
@@ -246,7 +246,7 @@ public final class PlayerScreenEntityRenderer {
         float fw = foregroundQuad.halfWidth();
         float fh = foregroundQuad.halfHeight();
         int lightCoords = state.lightCoords;
-        Identifier textureId = state.backgroundTextureId;
+        ResourceLocation textureId = state.backgroundTextureId;
 
         // Left strip
         float horizontalGap = hw - fw;
@@ -342,7 +342,7 @@ public final class PlayerScreenEntityRenderer {
         }
     }
 
-    private static final Identifier WHITE_TEXTURE = Identifier.fromNamespaceAndPath("mcedia", "textures/gui/white.png");
+    private static final ResourceLocation WHITE_TEXTURE = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/white.png");
 
     private static void renderColoredQuad(SubmitNodeCollector submitNodeCollector, PoseStack poseStack,
             float left, float bottom, float right, float top, int color, int lightCoords) {
@@ -442,8 +442,8 @@ public final class PlayerScreenEntityRenderer {
         public int textureWidth;
         public int textureHeight;
         public ScreenFillMode fillMode = ScreenFillMode.FILL;
-        public @Nullable Identifier textureId;
-        public @Nullable Identifier backgroundTextureId;
+        public @Nullable ResourceLocation textureId;
+        public @Nullable ResourceLocation backgroundTextureId;
         public @Nullable MediaPlay media;
         public @Nullable PlaybackState playbackState;
         public @Nullable String errorMessage;
