@@ -55,6 +55,22 @@ public final class MediaTextureImpl extends AbstractTexture implements MediaText
 
     public MediaTextureImpl(ResourceLocation textureId) {
         this.textureId = textureId;
+        ensureInitialTextures();
+    }
+
+    private void ensureInitialTextures() {
+        var device = RenderSystem.getDevice();
+        int usage = GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_TEXTURE_BINDING;
+        var defaultTex = device.createTexture(() -> "mcedia:" + textureId + ":default", usage, TextureFormat.RGBA8, 1, 1, 1, 1);
+        this.textureA = defaultTex;
+        this.textureB = defaultTex;
+        this.viewA = device.createTextureView(defaultTex);
+        this.viewB = this.viewA;
+        this.texture = defaultTex;
+        this.textureView = this.viewA;
+        this.currentWidth = 1;
+        this.currentHeight = 1;
+        Minecraft.getInstance().getTextureManager().register(textureId, this);
     }
 
     public ResourceLocation getTextureId() {
@@ -240,11 +256,16 @@ public final class MediaTextureImpl extends AbstractTexture implements MediaText
     }
 
     private void ensureTextures(int width, int height) {
-        if (currentWidth == width && currentHeight == height && textureA != null) {
+        if (currentWidth == width && currentHeight == height && textureA != null && textureA == textureB) {
+            // Initial single-texture setup; upgrade to double-buffer.
+            // Don't close — the shared texture is reused as the first real texture.
+            textureB = textureA;
+            viewB = viewA;
+        } else if (currentWidth == width && currentHeight == height && textureA != null) {
             return;
+        } else {
+            closeTextures();
         }
-
-        closeTextures();
 
         var device = RenderSystem.getDevice();
         int usage = GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_TEXTURE_BINDING;
@@ -269,22 +290,22 @@ public final class MediaTextureImpl extends AbstractTexture implements MediaText
             uploader.close();
             uploader = null;
         }
-        if (viewA != null) {
+        if (viewA != null && viewA != viewB) {
             viewA.close();
-            viewA = null;
         }
+        viewA = null;
         if (viewB != null) {
             viewB.close();
-            viewB = null;
         }
-        if (textureA != null) {
+        viewB = null;
+        if (textureA != null && textureA != textureB) {
             textureA.close();
-            textureA = null;
         }
+        textureA = null;
         if (textureB != null) {
             textureB.close();
-            textureB = null;
         }
+        textureB = null;
         currentWidth = 0;
         currentHeight = 0;
         this.texture = null;
