@@ -3,7 +3,9 @@ package top.tobyprime.mcedia_core.client.renderer;
 import com.mojang.blaze3d.opengl.GlTexture;
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.textures.GpuTexture;
+import com.mojang.blaze3d.textures.GpuTextureView;
 import com.mojang.blaze3d.textures.TextureFormat;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.AbstractTexture;
@@ -31,6 +33,8 @@ public final class MediaTextureImpl extends AbstractTexture implements MediaText
 
     private GpuTexture textureA;
     private GpuTexture textureB;
+    private GpuTextureView viewA;
+    private GpuTextureView viewB;
     private int writeIndex;
     private volatile int currentWidth;
     private volatile int currentHeight;
@@ -217,6 +221,7 @@ public final class MediaTextureImpl extends AbstractTexture implements MediaText
         }
 
         GpuTexture writeTex = (writeIndex == 0) ? textureA : textureB;
+        GpuTextureView nextReadView = (writeIndex == 0) ? viewA : viewB;
 
         if (writeTex instanceof GlTexture glTex && "OpenGL".equals(RenderSystem.getDevice().getBackendName())) {
             if (uploader == null) {
@@ -231,6 +236,7 @@ public final class MediaTextureImpl extends AbstractTexture implements MediaText
 
         writeIndex ^= 1;
         this.texture = writeTex;
+        this.textureView = nextReadView;
     }
 
     private void ensureTextures(int width, int height) {
@@ -245,12 +251,15 @@ public final class MediaTextureImpl extends AbstractTexture implements MediaText
 
         textureA = device.createTexture(() -> "mcedia:" + textureId + ":a", usage, TextureFormat.RGBA8, width, height, 1, 1);
         textureB = device.createTexture(() -> "mcedia:" + textureId + ":b", usage, TextureFormat.RGBA8, width, height, 1, 1);
+        viewA = device.createTextureView(textureA);
+        viewB = device.createTextureView(textureB);
 
         currentWidth = width;
         currentHeight = height;
         writeIndex = 0;
 
         this.texture = textureB;
+        this.textureView = viewB;
 
         Minecraft.getInstance().getTextureManager().register(textureId, this);
     }
@@ -259,6 +268,14 @@ public final class MediaTextureImpl extends AbstractTexture implements MediaText
         if (uploader != null) {
             uploader.close();
             uploader = null;
+        }
+        if (viewA != null) {
+            viewA.close();
+            viewA = null;
+        }
+        if (viewB != null) {
+            viewB.close();
+            viewB = null;
         }
         if (textureA != null) {
             textureA.close();
@@ -271,5 +288,6 @@ public final class MediaTextureImpl extends AbstractTexture implements MediaText
         currentWidth = 0;
         currentHeight = 0;
         this.texture = null;
+        this.textureView = null;
     }
 }

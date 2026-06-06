@@ -1,28 +1,113 @@
 package top.tobyprime.mcedia_core.client.renderer;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.LightTexture;
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.texture.MissingTextureAtlasSprite;
+import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
+import org.jspecify.annotations.Nullable;
 import top.tobyprime.mcedia.api.player.MediaPlay;
 import top.tobyprime.mcedia.api.player.PlaybackState;
 import top.tobyprime.mcedia_core.client.player.ScreenPeripheral;
 import top.tobyprime.mcedia_core.client.player.ScreenPeripheral.ScreenFillMode;
 
-import org.jspecify.annotations.Nullable;
-
 /**
- * Stub for MC 1.21.8 which lack the SubmitNodeCollector / CameraRenderState API.
- * The video screen is not rendered; only the render state is tracked.
- * Full rendering is available from 1.21.9 onward.
+ * MC 1.21.8 renderer for player-attached screens.
+ * Renders into an active MultiBufferSource.BufferSource provided by the entity
+ * rendering pipeline, so camera projection/view transforms are applied correctly.
  */
 public final class PlayerScreenEntityRenderer {
 
     private PlayerScreenEntityRenderer() {
     }
 
-    public static void submit(State state) {
+    public static void submit(State state, Vec3 screenPos, Vec3 cameraPos,
+            MultiBufferSource.BufferSource bufferSource) {
+        PoseStack poseStack = new PoseStack();
+        poseStack.translate(
+                screenPos.x - cameraPos.x,
+                screenPos.y - cameraPos.y + state.height * 0.5F,
+                screenPos.z - cameraPos.z
+        );
+        poseStack.mulPose(state.worldRotation);
+
+        ResourceLocation foregroundTextureId = resolveForegroundTextureId(state);
+        var foregroundQuad = getForegroundQuad(state);
+
+        if (foregroundTextureId != null) {
+            renderTexturedQuad(poseStack, bufferSource, state.lightCoords, foregroundTextureId, foregroundQuad, 0.0F);
+        } else if (shouldRenderBackgroundLayer(state)) {
+            renderTexturedQuad(poseStack, bufferSource, state.lightCoords, state.backgroundTextureId,
+                    Quad.fromSize(state.width, state.height), 0.0F);
+        }
+    }
+
+    private static void renderTexturedQuad(PoseStack poseStack, MultiBufferSource.BufferSource bufferSource,
+            int lightCoords, ResourceLocation textureId, Quad quad, float z) {
+        RenderType renderType = RenderType.entityTranslucent(textureId);
+        VertexConsumer consumer = bufferSource.getBuffer(renderType);
+        var pose = poseStack.last();
+        vertex(consumer, pose, lightCoords, -quad.halfWidth(), -quad.halfHeight(), z, 0.0F, 1.0F);
+        vertex(consumer, pose, lightCoords, quad.halfWidth(), -quad.halfHeight(), z, 1.0F, 1.0F);
+        vertex(consumer, pose, lightCoords, quad.halfWidth(), quad.halfHeight(), z, 1.0F, 0.0F);
+        vertex(consumer, pose, lightCoords, -quad.halfWidth(), quad.halfHeight(), z, 0.0F, 0.0F);
+    }
+
+    private static void vertex(VertexConsumer consumer, PoseStack.Pose pose, int lightCoords,
+            float x, float y, float z, float u, float v) {
+        consumer.addVertex(pose, x, y, z)
+                .setColor(-1)
+                .setUv(u, v)
+                .setOverlay(OverlayTexture.NO_OVERLAY)
+                .setLight(lightCoords)
+                .setNormal(pose, 0.0F, 0.0F, 1.0F);
+    }
+
+    private static @Nullable ResourceLocation resolveForegroundTextureId(State state) {
+        if (hasPlayableVideoFrame(state)) {
+            return state.textureId;
+        }
+        if (shouldRenderBackgroundLayer(state)) {
+            return null;
+        }
+        return state.textureId;
+    }
+
+    private static boolean shouldRenderBackgroundLayer(State state) {
+        return state.fillMode == ScreenFillMode.KEEP_ASPECT_COVER && state.backgroundTextureId != null;
+    }
+
+    private static boolean hasPlayableVideoFrame(State state) {
+        return state.textureId != null && state.textureWidth > 0 && state.textureHeight > 0;
+    }
+
+    private static Quad getForegroundQuad(State state) {
+        float renderWidth = state.width;
+        float renderHeight = state.height;
+
+        if (state.fillMode != ScreenFillMode.KEEP_ASPECT_COVER
+                || state.textureWidth <= 0
+                || state.textureHeight <= 0
+                || state.width <= 0.0F
+                || state.height <= 0.0F) {
+            return Quad.fromSize(renderWidth, renderHeight);
+        }
+
+        float screenAspect = state.width / state.height;
+        float textureAspect = (float) state.textureWidth / (float) state.textureHeight;
+
+        if (screenAspect > textureAspect) {
+            renderWidth = state.height * textureAspect;
+        } else if (screenAspect < textureAspect) {
+            renderHeight = state.width / textureAspect;
+        }
+        return Quad.fromSize(renderWidth, renderHeight);
     }
 
     public static State createRenderState() {

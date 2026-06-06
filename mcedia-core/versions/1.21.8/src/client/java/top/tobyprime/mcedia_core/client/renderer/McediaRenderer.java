@@ -1,7 +1,9 @@
 package top.tobyprime.mcedia_core.client.renderer;
 
-import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.client.Camera;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.LevelRenderer;
+import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
@@ -15,9 +17,8 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 /**
- * Stub for MC 1.21.8 which lack the SubmitNodeCollector / LevelRenderState API.
- * Peripheral management is retained; screen rendering is a no-op.
- * Full rendering is available from 1.21.9 onward.
+ * MC 1.21.8 variant: renders screens without SubmitNodeCollector/CameraRenderState/LevelRenderState.
+ * Uses Tesselator + RenderType.draw() for self-contained quad rendering.
  */
 public final class McediaRenderer {
     private static final McediaRenderer INSTANCE = new McediaRenderer();
@@ -90,7 +91,26 @@ public final class McediaRenderer {
         return currentFrustum;
     }
 
-    // Screen rendering is a no-op in this MC version range.
-    // The submitScreens method would normally be called from MixinLevelRenderer,
-    // but that mixin is also stubbed for 1.21.8.
+    public void submitScreens(MultiBufferSource.BufferSource bufferSource, Camera camera) {
+        var level = Minecraft.getInstance().level;
+        if (level == null) return;
+
+        var frustum = currentFrustum;
+        var cameraPos = camera.getPosition();
+
+        Set<ScreenPeripheral> snapshot;
+        synchronized (lock) {
+            snapshot = new LinkedHashSet<>(screens);
+        }
+
+        for (var screen : snapshot) {
+            if (!screen.isAlive()) continue;
+            if (frustum != null && !screen.isVisible(frustum)) continue;
+
+            var state = PlayerScreenEntityRenderer.createRenderState();
+            int light = LevelRenderer.getLightColor(level, BlockPos.containing(screen.getPosition()));
+            PlayerScreenEntityRenderer.extractRenderState(screen, state, light);
+            PlayerScreenEntityRenderer.submit(state, screen.getPosition(), cameraPos, bufferSource);
+        }
+    }
 }

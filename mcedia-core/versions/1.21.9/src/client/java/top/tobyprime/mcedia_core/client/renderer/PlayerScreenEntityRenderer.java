@@ -5,15 +5,16 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.renderer.LightTexture;
-import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.state.CameraRenderState;
 import net.minecraft.client.renderer.texture.MissingTextureAtlasSprite;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
 import org.joml.Quaternionf;
+import org.jspecify.annotations.Nullable;
 import top.tobyprime.mcedia.api.danmaku.DanmakuItem;
 import top.tobyprime.mcedia.api.player.MediaPlay;
 import top.tobyprime.mcedia.api.player.PlaybackState;
@@ -22,8 +23,6 @@ import top.tobyprime.mcedia_core.client.danmaku.render.DanmakuTextClipper;
 import top.tobyprime.mcedia_core.client.danmaku.render.DanmakuWidthMeasurer;
 import top.tobyprime.mcedia_core.client.player.ScreenPeripheral;
 import top.tobyprime.mcedia_core.client.player.ScreenPeripheral.ScreenFillMode;
-
-import org.jspecify.annotations.Nullable;
 
 public final class PlayerScreenEntityRenderer {
 
