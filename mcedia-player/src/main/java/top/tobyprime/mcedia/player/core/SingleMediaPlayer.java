@@ -55,18 +55,22 @@ public class SingleMediaPlayer implements MediaPlayer {
 
             var play = new MediaPlayImpl(media, audioProcessor, videoProcessor);
 
+            MediaPlayImpl preMedia;
             lock.lock();
             try {
                 if (requestId != loadRequestId.get()) {
                     throw new CancellationException("stale media load request");
                 }
-                var preMedia = this.mediaPlay;
-                if (preMedia != null) {
-                    preMedia.close();
-                }
+                preMedia = this.mediaPlay;
                 this.mediaPlay = play;
             } finally {
                 lock.unlock();
+            }
+            // preMedia.close() intentionally called outside the lock —
+            // decoder.close() may block on I/O, which would prevent close()
+            // on another thread from acquiring the lock.
+            if (preMedia != null) {
+                preMedia.close();
             }
 
             play.open(decoderConfiguration);
@@ -162,15 +166,18 @@ public class SingleMediaPlayer implements MediaPlayer {
             return;
         }
 
-        lock.lock();
+        this.lock.lock();
         try {
             if (requestId != seekRequestId.get() || mediaPlay != target) {
                 return;
             }
-            target.seek(time);
         } finally {
-            lock.unlock();
+            this.lock.unlock();
         }
+        // Don't hold SingleMediaPlayer.lock during target.seek() — decoder.seek()
+        // may block on I/O, which would prevent close() from acquiring the lock
+        // and hang the calling thread.
+        target.seek(time);
     }
 
     @Override

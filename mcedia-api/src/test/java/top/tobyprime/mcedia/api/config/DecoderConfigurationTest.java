@@ -23,7 +23,7 @@ class DecoderConfigurationTest {
         DecoderConfiguration config = new DecoderConfiguration.Builder().build();
 
         assertEquals(2_000_000L, config.getCacheDuration());
-        assertEquals(2_000_000, config.getProbesize());
+        assertEquals(4_000_000, config.getProbesize());
     }
 
     @Test
