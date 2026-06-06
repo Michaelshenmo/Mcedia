@@ -231,6 +231,7 @@ public final class MediaTextureImpl extends AbstractTexture implements MediaText
 
         writeIndex ^= 1;
         this.texture = writeTex;
+        this.textureView = RenderSystem.getDevice().createTextureView(writeTex);
     }
 
     private void ensureTextures(int width, int height) {
@@ -251,6 +252,7 @@ public final class MediaTextureImpl extends AbstractTexture implements MediaText
         writeIndex = 0;
 
         this.texture = textureB;
+        this.textureView = device.createTextureView(textureB);
 
         Minecraft.getInstance().getTextureManager().register(textureId, this);
     }

@@ -318,24 +318,8 @@ public final class PlayerScreenEntityRenderer {
                     renderColoredQuad(submitNodeCollector, poseStack, blockRight, barBottom, barRight, barTop, 0x40000000, lightCoords);
                 }
             }
-            case PLAYING -> {
-                if (state.progress > 0.0F) {
-                    float fillEnd = Math.min(barLeft + barWidth * state.progress, barRight);
-                    renderColoredQuad(submitNodeCollector, poseStack, barLeft, barBottom, fillEnd, barTop, 0xCCFFFFFF, lightCoords);
-                    if (fillEnd < barRight) {
-                        renderColoredQuad(submitNodeCollector, poseStack, fillEnd, barBottom, barRight, barTop, 0x40000000, lightCoords);
-                    }
-                }
-            }
-            case PAUSED -> {
-                if (state.progress > 0.0F) {
-                    float fillEnd = Math.min(barLeft + barWidth * state.progress, barRight);
-                    renderColoredQuad(submitNodeCollector, poseStack, barLeft, barBottom, fillEnd, barTop, 0x80FFFFFF, lightCoords);
-                    if (fillEnd < barRight) {
-                        renderColoredQuad(submitNodeCollector, poseStack, fillEnd, barBottom, barRight, barTop, 0x40000000, lightCoords);
-                    }
-                }
-            }
+            case PLAYING -> renderProgressFill(submitNodeCollector, poseStack, barLeft, barBottom, barRight, barTop, barWidth, state.progress, 0xCCFFFFFF, lightCoords);
+            case PAUSED -> renderProgressFill(submitNodeCollector, poseStack, barLeft, barBottom, barRight, barTop, barWidth, state.progress, 0x80FFFFFF, lightCoords);
             case ENDED -> {
                 renderColoredQuad(submitNodeCollector, poseStack, barLeft, barBottom, barRight, barTop, 0xCCAAAAAA, lightCoords);
             }
@@ -373,6 +357,18 @@ public final class PlayerScreenEntityRenderer {
                     .setLight(lightCoords)
                     .setNormal(pose, 0.0F, 0.0F, 1.0F);
         });
+    }
+
+    private static void renderProgressFill(SubmitNodeCollector submitNodeCollector, PoseStack poseStack,
+            float barLeft, float barBottom, float barRight, float barTop, float barWidth,
+            float progress, int fillColor, int lightCoords) {
+        if (progress > 0.0F) {
+            float fillEnd = Math.min(barLeft + barWidth * progress, barRight);
+            renderColoredQuad(submitNodeCollector, poseStack, barLeft, barBottom, fillEnd, barTop, fillColor, lightCoords);
+            if (fillEnd < barRight) {
+                renderColoredQuad(submitNodeCollector, poseStack, fillEnd, barBottom, barRight, barTop, 0x40000000, lightCoords);
+            }
+        }
     }
 
     private static Quad getForegroundQuad(State state) {
