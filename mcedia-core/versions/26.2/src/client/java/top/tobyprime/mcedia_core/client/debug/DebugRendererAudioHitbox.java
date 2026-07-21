@@ -4,7 +4,6 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.debug.DebugScreenEntries;
-import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.rendertype.RenderType;
@@ -13,6 +12,7 @@ import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.phys.AABB;
 import top.tobyprime.mcedia_core.client.audio.OpenAlAudioSource;
 
@@ -44,7 +44,8 @@ public final class DebugRendererAudioHitbox {
                 continue;
             }
 
-            int light = LevelRenderer.getLightColor(level, BlockPos.containing(pos));
+            var blockPos = BlockPos.containing(pos);
+            int light = ((int) (level.getBrightness(LightLayer.SKY, blockPos) * 15.0F) << 20) | ((int) (level.getBrightness(LightLayer.BLOCK, blockPos) * 15.0F) << 4);
             poseStack.pushPose();
             poseStack.translate(pos.x - cameraRenderState.pos.x, pos.y - cameraRenderState.pos.y + ICON_Y_OFFSET, pos.z - cameraRenderState.pos.z);
             poseStack.scale(ICON_SCALE, ICON_SCALE, ICON_SCALE);
