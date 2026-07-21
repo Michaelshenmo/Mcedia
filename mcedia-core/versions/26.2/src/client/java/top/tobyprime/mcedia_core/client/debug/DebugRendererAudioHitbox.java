@@ -44,7 +44,7 @@ public final class DebugRendererAudioHitbox {
                 continue;
             }
 
-            int light = LevelRenderer.getLightCoords(level, BlockPos.containing(pos));
+            int light = LevelRenderer.getLightColor(level, BlockPos.containing(pos));
             poseStack.pushPose();
             poseStack.translate(pos.x - cameraRenderState.pos.x, pos.y - cameraRenderState.pos.y + ICON_Y_OFFSET, pos.z - cameraRenderState.pos.z);
             poseStack.scale(ICON_SCALE, ICON_SCALE, ICON_SCALE);

@@ -106,7 +106,7 @@ public final class McediaRenderer {
 
             var screenPos = screen.getPosition();
             var state = PlayerScreenEntityRenderer.createRenderState();
-            int light = LevelRenderer.getLightCoords(level, BlockPos.containing(screenPos));
+            int light = LevelRenderer.getLightColor(level, BlockPos.containing(screenPos));
             PlayerScreenEntityRenderer.extractRenderState(screen, state, light);
             poseStack.pushPose();
             poseStack.translate(
