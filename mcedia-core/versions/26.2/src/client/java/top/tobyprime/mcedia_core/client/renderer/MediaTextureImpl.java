@@ -1,6 +1,5 @@
 package top.tobyprime.mcedia_core.client.renderer;
 
-import com.mojang.blaze3d.gpu.GpuFormat;
 import com.mojang.blaze3d.opengl.GlTexture;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.GpuTexture;
@@ -243,8 +242,8 @@ public final class MediaTextureImpl extends AbstractTexture implements MediaText
         var device = RenderSystem.getDevice();
         int usage = GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_TEXTURE_BINDING;
 
-        textureA = device.createTexture(() -> "mcedia:" + textureId + ":a", usage, GpuFormat.RGBA8, width, height, 1, 1);
-        textureB = device.createTexture(() -> "mcedia:" + textureId + ":b", usage, GpuFormat.RGBA8, width, height, 1, 1);
+        textureA = device.createTexture(() -> "mcedia:" + textureId + ":a", usage, RenderSystem.GpuFormat.RGBA8, width, height, 1, 1);
+        textureB = device.createTexture(() -> "mcedia:" + textureId + ":b", usage, RenderSystem.GpuFormat.RGBA8, width, height, 1, 1);
 
         currentWidth = width;
         currentHeight = height;
